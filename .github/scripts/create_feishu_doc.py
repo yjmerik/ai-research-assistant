@@ -471,7 +471,7 @@ def main():
     
     from datetime import datetime
     if is_fallback:
-        doc_title = f"{topic} - 论文收集结果 {datetime.now().strftime('%Y-%m-%d')}"
+        doc_title = f"{topic} - Kimi解读版研究简报 {datetime.now().strftime('%Y-%m-%d')}"
     else:
         doc_title = f"{topic} - AI解读版研究简报 {datetime.now().strftime('%Y-%m-%d')}"
     
