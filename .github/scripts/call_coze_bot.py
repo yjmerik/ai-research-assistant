@@ -2,7 +2,8 @@
 """
 调用扣子 Bot 进行论文解读
 
-使用扣子 Chat API 与 Bot 对话，获取 AI 通俗解读
+使用扣子 Chat API v3 与 Bot 对话，获取 AI 通俗解读
+文档: https://docs.coze.cn/developer_guides/coze_api_overview
 """
 
 import os
@@ -19,10 +20,10 @@ COZE_API_BASE = "https://api.coze.cn"
 class CozeBotClient:
     """扣子 Bot 客户端"""
     
-    def __init__(self, pat, bot_id, workspace_id):
+    def __init__(self, pat, bot_id, user_id="github_actions_user"):
         self.pat = pat
         self.bot_id = bot_id
-        self.workspace_id = workspace_id
+        self.user_id = user_id
         self.conversation_id = None
         
     def _request(self, method, endpoint, data=None):
@@ -55,25 +56,31 @@ class CozeBotClient:
         except Exception as e:
             return {'error': str(e)}
     
-    def chat_with_bot(self, query):
+    def chat_with_bot(self, content):
         """
-        使用扣子 Chat API 与 Bot 对话
-        这是简化版的聊天接口
-        """
-        print(f"💬 调用扣子 Chat API...")
+        使用扣子 Chat API v3 与 Bot 对话
         
-        # 使用 chat 接口直接发送消息
+        API: POST https://api.coze.cn/v3/chat
+        """
+        print(f"💬 调用扣子 Chat API v3...")
+        
         data = {
             "bot_id": self.bot_id,
-            "workspace_id": self.workspace_id,
-            "query": query,
-            "stream": False
+            "user_id": self.user_id,
+            "auto_save_history": True,
+            "additional_messages": [
+                {
+                    "role": "user",
+                    "content": content,
+                    "content_type": "text"
+                }
+            ]
         }
         
-        result = self._request('POST', '/v1/chat', data)
+        result = self._request('POST', '/v3/chat', data)
         
         # 打印调试信息
-        print(f"   API 响应: {json.dumps(result, ensure_ascii=False)[:200]}...")
+        print(f"   API 响应 code: {result.get('code', 'N/A')}")
         
         if result.get('error'):
             print(f"❌ API 错误: {result.get('error')}")
@@ -81,36 +88,75 @@ class CozeBotClient:
         
         if result.get('code') != 0:
             print(f"❌ 请求失败: {result.get('msg', '未知错误')}")
-            print(f"   完整响应: {result}")
             return None
         
-        # 获取回复内容
+        # 获取对话 ID 用于查询结果
         data = result.get('data', {})
+        self.conversation_id = data.get('conversation_id')
+        chat_id = data.get('id')
         
-        # 检查不同可能的响应格式
-        if isinstance(data, str):
-            return data
+        print(f"✅ 对话创建成功")
+        print(f"   Conversation ID: {self.conversation_id[:30]}..." if self.conversation_id else "   Conversation ID: None")
+        print(f"   Chat ID: {chat_id[:30]}..." if chat_id else "   Chat ID: None")
         
-        if isinstance(data, dict):
-            # 尝试获取消息内容
-            messages = data.get('messages', [])
-            if messages:
-                for msg in messages:
-                    if msg.get('type') == 'answer':
-                        return msg.get('content', '')
+        # 等待并获取回复
+        return self._wait_for_chat_completion(chat_id)
+    
+    def _wait_for_chat_completion(self, chat_id, timeout=120):
+        """等待对话完成并获取结果"""
+        print(f"⏳ 等待 Bot 回复...")
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            # 查询对话状态
+            result = self._request('GET', f'/v3/chat/retrieve?conversation_id={self.conversation_id}&chat_id={chat_id}')
             
-            # 直接返回 data 中的内容字段
-            if 'content' in data:
-                return data['content']
-            if 'answer' in data:
-                return data['answer']
-            if 'reply' in data:
-                return data['reply']
+            if result.get('code') != 0:
+                print(f"   查询失败: {result.get('msg', '未知错误')}")
+                time.sleep(2)
+                continue
             
-            # 返回整个 data 的字符串表示
-            return json.dumps(data, ensure_ascii=False)
+            data = result.get('data', {})
+            status = data.get('status')
+            
+            print(f"   状态: {status}")
+            
+            if status == 'completed':
+                # 获取消息列表
+                return self._get_chat_messages()
+            elif status in ['failed', 'cancelled']:
+                print(f"❌ 对话失败: {data.get('last_error', '未知错误')}")
+                return None
+            
+            time.sleep(3)
         
-        return str(data)
+        print("⚠️  等待超时")
+        return None
+    
+    def _get_chat_messages(self):
+        """获取对话消息列表"""
+        print(f"📥 获取回复内容...")
+        
+        result = self._request('GET', f'/v3/chat/message/list?conversation_id={self.conversation_id}')
+        
+        if result.get('code') != 0:
+            print(f"❌ 获取消息失败: {result.get('msg', '未知错误')}")
+            return None
+        
+        messages = result.get('data', [])
+        
+        # 找到 assistant 的回复
+        for msg in messages:
+            if msg.get('type') == 'answer' and msg.get('role') == 'assistant':
+                content = msg.get('content', '')
+                print(f"✅ 收到回复 ({len(content)} 字符)")
+                return content
+        
+        # 如果没有 answer 类型，返回最后一条消息
+        if messages:
+            return messages[-1].get('content', '')
+        
+        return None
 
 
 def load_papers():
@@ -189,23 +235,19 @@ def main():
     # 获取环境变量
     pat = os.environ.get('COZE_PAT')
     bot_id = os.environ.get('COZE_BOT_ID')
-    workspace_id = os.environ.get('COZE_WORKSPACE_ID')
     topic = os.environ.get('TOPIC', 'AI Agent')
     
     # 打印环境变量（隐藏敏感信息）
     print(f"Bot ID: {bot_id[:20]}..." if bot_id else "Bot ID: None")
-    print(f"Workspace ID: {workspace_id[:20]}..." if workspace_id else "Workspace ID: None")
     print(f"PAT: {'已设置' if pat else '未设置'}")
     print()
     
-    if not all([pat, bot_id, workspace_id]):
+    if not all([pat, bot_id]):
         print("❌ 缺少必要的环境变量:")
         if not pat:
             print("   - COZE_PAT")
         if not bot_id:
             print("   - COZE_BOT_ID")
-        if not workspace_id:
-            print("   - COZE_WORKSPACE_ID")
         return 1
     
     # 加载论文
@@ -222,7 +264,7 @@ def main():
     message = format_papers_for_coze(papers_data)
     
     # 创建 Bot 客户端
-    client = CozeBotClient(pat, bot_id, workspace_id)
+    client = CozeBotClient(pat, bot_id)
     
     # 发送消息并获取回复
     print(f"📤 发送论文给扣子 Bot 进行解读...")
