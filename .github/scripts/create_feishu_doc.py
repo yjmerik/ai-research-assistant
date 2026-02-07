@@ -75,10 +75,8 @@ def create_document(token, title):
         # 尝试多种可能的 URL 格式
         # 飞书文档 URL 格式可能因租户不同而不同
         if doc_id:
-            # 标准格式
-            doc_url = f"https://bytedance.feishu.cn/docx/{doc_id}"
-            # 也可以尝试其他格式
-            # doc_url = f"https://www.feishu.cn/docx/{doc_id}"
+            # 使用用户的飞书域名
+            doc_url = f"https://my.feishu.cn/docx/{doc_id}"
         else:
             doc_url = None
         
@@ -209,9 +207,8 @@ def send_notification(token, user_id, doc_id, topic, paper_count):
     
     from datetime import datetime
     
-    # 构建文档链接 - 使用正确的飞书文档 URL 格式
-    # 个人用户通常是 bytedance.feishu.cn
-    doc_url = f"https://bytedance.feishu.cn/docx/{doc_id}"
+    # 构建文档链接 - 使用用户的飞书域名
+    doc_url = f"https://my.feishu.cn/docx/{doc_id}"
     
     card = {
         "config": {"wide_screen_mode": True},
