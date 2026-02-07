@@ -3,6 +3,7 @@
 创建飞书文档并写入解读内容
 
 使用飞书 Doc API 创建文档并添加内容
+参考之前成功的 auto_research.py 实现
 """
 
 import os
@@ -10,6 +11,7 @@ import sys
 import json
 import urllib.request
 import urllib.error
+import time
 
 
 def get_feishu_token(app_id, app_secret):
@@ -48,9 +50,7 @@ def create_document(token, title):
     
     url = "https://open.feishu.cn/open-apis/docx/v1/documents"
     
-    data = json.dumps({
-        "title": title
-    }).encode('utf-8')
+    data = json.dumps({"title": title}).encode('utf-8')
     
     headers = {
         'Authorization': f'Bearer {token}',
@@ -62,9 +62,6 @@ def create_document(token, title):
         with urllib.request.urlopen(req, timeout=30) as response:
             result = json.loads(response.read().decode('utf-8'))
         
-        # 调试：打印完整的 API 响应
-        print(f"   完整 API 响应: {json.dumps(result, ensure_ascii=False)[:800]}")
-        
         if result.get('code') != 0:
             print(f"❌ 创建文档失败: {result.get('msg')}")
             return None
@@ -73,12 +70,7 @@ def create_document(token, title):
         data = result.get('data', {})
         doc_data = data.get('document', {}) if isinstance(data, dict) else {}
         
-        if isinstance(doc_data, dict):
-            doc_id = doc_data.get('document_id')
-            block_id = doc_data.get('block_id') or doc_id
-        else:
-            print(f"❌ 意外的响应格式: {type(doc_data)}")
-            return None
+        doc_id = doc_data.get('document_id')
         
         if not doc_id:
             print(f"❌ 无法获取文档 ID")
@@ -87,14 +79,11 @@ def create_document(token, title):
         # 使用用户的飞书域名
         doc_url = f"https://my.feishu.cn/docx/{doc_id}"
         
-        print(f"✅ 文档创建成功")
-        print(f"   文档 ID: {doc_id}")
-        print(f"   文档链接: {doc_url}")
+        print(f"✅ 文档创建成功: {doc_id}")
         
         return {
             'document_id': doc_id,
-            'document_url': doc_url,
-            'block_id': block_id
+            'document_url': doc_url
         }
         
     except Exception as e:
@@ -102,76 +91,94 @@ def create_document(token, title):
         return None
 
 
-def add_document_content(token, document_id, content):
-    """添加文档内容 - 使用纯文本方式"""
+def get_page_block_id(token, doc_id):
+    """获取文档的页面块 ID"""
+    print("🔍 获取页面块 ID...")
+    
+    url = f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_id}/blocks?page_size=1"
+    
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
+    
+    try:
+        req = urllib.request.Request(url, headers=headers, method='GET')
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+        
+        if result.get('code') != 0:
+            print(f"❌ 获取页面块失败: {result.get('msg')}")
+            return None
+        
+        items = result.get('data', {}).get('items', [])
+        if not items:
+            print("❌ 没有找到页面块")
+            return None
+        
+        page_block_id = items[0].get('block_id')
+        print(f"✅ 页面块 ID: {page_block_id[:20]}...")
+        return page_block_id
+        
+    except Exception as e:
+        print(f"❌ 请求失败: {e}")
+        return None
+
+
+def add_document_content(token, doc_id, page_block_id, content):
+    """添加文档内容 - 参考之前成功的实现"""
     print("📝 写入文档内容...")
     print(f"   内容长度: {len(content)} 字符")
     
-    # 飞书文档 API 使用块结构
-    # 文档根块的 ID 就是 document_id
-    url = f"https://open.feishu.cn/open-apis/docx/v1/documents/{document_id}/blocks/{document_id}/children"
+    url = f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_id}/blocks/{page_block_id}/children"
     
-    # 将内容按行分割，每行作为一个文本块
-    lines = content.split('\n')
+    # 转换内容为块 - 使用正确的块类型编号（参考之前成功的脚本）
+    # heading1: 3, heading2: 4, heading3: 5, bullet: 12, text: 2, divider: 16
     blocks = []
     
-    for line in lines[:100]:  # 限制最多 100 行
-        line = line.strip()
+    for line in content.split('\n'):
+        line = line.rstrip()
         if not line:
-            # 空行也创建一个空文本块
-            blocks.append({
-                "block_type": 2,  # 文本块
-                "text": {
-                    "elements": []
-                }
-            })
             continue
         
-        # 检测标题
-        if line.startswith('# ') and not line.startswith('## '):
-            text = line[2:].strip()
+        if line.startswith('# '):
+            # 标题1 - block_type 3
             blocks.append({
-                "block_type": 1,  # 标题1
-                "heading1": {
-                    "elements": [{"text_run": {"content": text}}]
-                }
+                "block_type": 3,
+                "heading1": {"elements": [{"text_run": {"content": line[2:].strip()}}]}
             })
-        elif line.startswith('## ') and not line.startswith('### '):
-            text = line[3:].strip()
+        elif line.startswith('## '):
+            # 标题2 - block_type 4
             blocks.append({
-                "block_type": 3,  # 标题2
-                "heading2": {
-                    "elements": [{"text_run": {"content": text}}]
-                }
+                "block_type": 4,
+                "heading2": {"elements": [{"text_run": {"content": line[3:].strip()}}]}
             })
         elif line.startswith('### '):
-            text = line[4:].strip()
+            # 标题3 - block_type 5
             blocks.append({
-                "block_type": 4,  # 标题3
-                "heading3": {
-                    "elements": [{"text_run": {"content": text}}]
-                }
+                "block_type": 5,
+                "heading3": {"elements": [{"text_run": {"content": line[4:].strip()}}]}
             })
         elif line.startswith('- ') or line.startswith('* '):
+            # 无序列表 - block_type 12
             text = line[2:].strip()
             # 移除 markdown 标记
             text = text.replace('**', '').replace('*', '').replace('`', '')
             blocks.append({
-                "block_type": 5,  # 无序列表
-                "bullet": {
-                    "elements": [{"text_run": {"content": text}}]
-                }
+                "block_type": 12,
+                "bullet": {"elements": [{"text_run": {"content": text}}]}
             })
+        elif line.startswith('---'):
+            # 分割线 - block_type 16
+            blocks.append({"block_type": 16, "divider": {}})
         else:
-            # 普通文本
+            # 普通文本 - block_type 2
             # 移除 markdown 标记
             text = line.replace('**', '').replace('*', '').replace('`', '')
             if text:
                 blocks.append({
-                    "block_type": 2,  # 文本块
-                    "text": {
-                        "elements": [{"text_run": {"content": text}}]
-                    }
+                    "block_type": 2,
+                    "text": {"elements": [{"text_run": {"content": text}}]}
                 })
     
     if not blocks:
@@ -180,12 +187,12 @@ def add_document_content(token, document_id, content):
     
     print(f"   准备写入 {len(blocks)} 个块...")
     
-    # 飞书 API 限制每次最多 50 个块
+    # 分批添加内容，每批最多 50 个块
     batch_size = 50
     total_written = 0
     
     for i in range(0, len(blocks), batch_size):
-        batch = blocks[i:i+batch_size]
+        batch = blocks[i:i + batch_size]
         
         request_body = {
             "index": -1,  # 在末尾添加
@@ -210,10 +217,12 @@ def add_document_content(token, document_id, content):
                 print(f"   响应: {json.dumps(result, ensure_ascii=False)[:500]}")
                 return False
             
-            # 检查返回的数据
-            children = result.get('data', {}).get('children', [])
-            total_written += len(children)
-            print(f"   已写入批次 {i//batch_size + 1}: {len(children)} 个块")
+            total_written += len(batch)
+            print(f"   已写入批次 {i//batch_size + 1}: {len(batch)} 个块")
+            
+            # 如果还有更多批次，稍作等待
+            if i + batch_size < len(blocks):
+                time.sleep(0.5)
             
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8')
@@ -239,7 +248,7 @@ def send_notification(token, user_id, doc_id, topic, paper_count):
     
     from datetime import datetime
     
-    # 构建文档链接 - 使用用户的飞书域名
+    # 构建文档链接
     doc_url = f"https://my.feishu.cn/docx/{doc_id}"
     
     card = {
@@ -260,7 +269,7 @@ def send_notification(token, user_id, doc_id, topic, paper_count):
                 "tag": "div",
                 "text": {
                     "tag": "lark_md",
-                    "content": f"⏰ 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n📝 文档 ID: {doc_id[:20]}..."
+                    "content": f"⏰ 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
                 }
             },
             {
@@ -372,8 +381,14 @@ def main():
     if not doc_info:
         return 1
     
+    # 获取页面块 ID
+    page_block_id = get_page_block_id(token, doc_info['document_id'])
+    if not page_block_id:
+        print("⚠️  无法获取页面块 ID，尝试使用文档 ID 作为块 ID...")
+        page_block_id = doc_info['document_id']
+    
     # 添加内容
-    if not add_document_content(token, doc_info['document_id'], content):
+    if not add_document_content(token, doc_info['document_id'], page_block_id, content):
         print("⚠️  文档内容写入失败，但文档已创建")
     
     # 发送通知
