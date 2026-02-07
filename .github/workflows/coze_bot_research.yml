@@ -42,6 +42,8 @@ jobs:
         ARXIV_COUNT: ${{ github.event.inputs.arxiv_count || '10' }}
       run: |
         python .github/scripts/search_arxiv.py
+        echo "📂 搜索后的文件:"
+        ls -la *.json *.md 2>/dev/null || echo "暂无 md/json 文件"
     
     - name: Send to Coze Bot for analysis
       id: coze
@@ -52,8 +54,11 @@ jobs:
         TOPIC: ${{ github.event.inputs.topic || 'AI Agent' }}
       run: |
         python .github/scripts/call_coze_bot.py
+        echo "📂 扣子解读后的文件:"
+        ls -la *.json *.md 2>/dev/null || echo "暂无 md/json 文件"
     
     - name: Fallback to Kimi API if Coze failed
+      id: kimi
       if: steps.coze.outcome != 'success'
       env:
         KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
@@ -61,9 +66,20 @@ jobs:
       run: |
         echo "⚠️ 扣子 Bot 失败，使用 Kimi API 进行解读..."
         python .github/scripts/analyze_with_kimi.py
+        echo "📂 Kimi 解读后的文件:"
+        ls -la *.json *.md 2>/dev/null || echo "暂无 md/json 文件"
+    
+    - name: Check files before creating document
+      run: |
+        echo "📂 创建文档前的文件:"
+        ls -la *.json *.md 2>/dev/null || echo "暂无 md/json 文件"
+        echo ""
+        echo "📄 latest_analysis.md 内容预览:"
+        head -50 latest_analysis.md 2>/dev/null || echo "文件不存在"
     
     - name: Create Feishu document
-      if: success()
+      # 只要搜索成功就创建文档，不管解读是否成功
+      if: steps.search.outcome == 'success'
       env:
         FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
         FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}

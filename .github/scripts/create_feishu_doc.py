@@ -238,6 +238,12 @@ def add_document_content(token, doc_id, page_block_id, content):
 
 def load_analysis():
     """加载解读结果"""
+    import glob
+    
+    # 打印当前工作目录
+    cwd = os.getcwd()
+    print(f"📂 当前工作目录: {cwd}")
+    
     # 检查当前目录的文件
     print("📂 检查当前目录文件:")
     try:
@@ -249,27 +255,36 @@ def load_analysis():
     except Exception as e:
         print(f"   无法列出文件: {e}")
     
-    # 尝试读取解读文件
-    try:
-        if os.path.exists('latest_analysis.md'):
-            print("   找到 latest_analysis.md")
+    # 按优先级尝试读取解读文件
+    # 1. 优先读取 latest_analysis.md
+    if os.path.exists('latest_analysis.md'):
+        try:
+            print("   读取 latest_analysis.md...")
             with open('latest_analysis.md', 'r', encoding='utf-8') as f:
                 content = f.read()
-            print(f"   文件大小: {len(content)} 字符")
-            return content
-    except Exception as e:
-        print(f"   读取 latest_analysis.md 失败: {e}")
+            if content.strip():
+                print(f"   ✅ 文件大小: {len(content)} 字符")
+                return content
+            else:
+                print("   ⚠️ 文件为空")
+        except Exception as e:
+            print(f"   ❌ 读取失败: {e}")
     
-    # 如果没有，查找最新的 analysis_*.md
-    import glob
+    # 2. 查找 analysis_*.md
     files = glob.glob('analysis_*.md')
     if files:
         latest = max(files, key=os.path.getctime)
-        print(f"   找到 {latest}")
-        with open(latest, 'r', encoding='utf-8') as f:
-            content = f.read()
-        print(f"   文件大小: {len(content)} 字符")
-        return content
+        try:
+            print(f"   读取 {latest}...")
+            with open(latest, 'r', encoding='utf-8') as f:
+                content = f.read()
+            if content.strip():
+                print(f"   ✅ 文件大小: {len(content)} 字符")
+                return content
+            else:
+                print("   ⚠️ 文件为空")
+        except Exception as e:
+            print(f"   ❌ 读取失败: {e}")
     
     print("   ❌ 没有找到解读文件")
     return None
