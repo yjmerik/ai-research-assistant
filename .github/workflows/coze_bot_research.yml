@@ -47,6 +47,17 @@ jobs:
       run: |
         python .github/scripts/call_coze_bot.py
     
+    - name: Send result to Feishu
+      if: success() && steps.coze.outcome == 'success'
+      env:
+        FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+        FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        FEISHU_USER_OPEN_ID: ${{ secrets.FEISHU_USER_OPEN_ID }}
+        TOPIC: ${{ github.event.inputs.topic || 'AI Agent' }}
+        PAPER_COUNT: ${{ github.event.inputs.arxiv_count || '10' }}
+      run: |
+        python .github/scripts/send_feishu_message.py
+    
     - name: Upload results
       if: always()
       uses: actions/upload-artifact@v4
@@ -55,4 +66,3 @@ jobs:
         path: |
           *.json
           *.md
-          *.log
