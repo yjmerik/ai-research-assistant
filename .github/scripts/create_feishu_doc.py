@@ -103,67 +103,72 @@ def create_document(token, title):
 
 
 def add_document_content(token, document_id, content):
-    """添加文档内容"""
+    """添加文档内容 - 使用纯文本方式"""
     print("📝 写入文档内容...")
+    print(f"   内容长度: {len(content)} 字符")
     
-    # 飞书文档使用块结构，我们先创建简单的文本块
-    # 将内容分段，每段创建一个 text 块
-    
+    # 飞书文档 API 使用块结构
+    # 文档根块的 ID 就是 document_id
     url = f"https://open.feishu.cn/open-apis/docx/v1/documents/{document_id}/blocks/{document_id}/children"
     
-    # 将内容分段处理
-    paragraphs = content.split('\n\n')
+    # 将内容按行分割，每行作为一个文本块
+    lines = content.split('\n')
     blocks = []
     
-    for para in paragraphs[:50]:  # 限制块数，避免请求过大
-        para = para.strip()
-        if not para:
+    for line in lines[:100]:  # 限制最多 100 行
+        line = line.strip()
+        if not line:
+            # 空行也创建一个空文本块
+            blocks.append({
+                "block_type": 2,  # 文本块
+                "text": {
+                    "elements": []
+                }
+            })
             continue
         
-        # 检测是否为标题
-        if para.startswith('# ') and not para.startswith('## '):
-            # 标题1
-            text = para.lstrip('# ').strip()
+        # 检测标题
+        if line.startswith('# ') and not line.startswith('## '):
+            text = line[2:].strip()
             blocks.append({
-                "block_type": 1,  # heading1
+                "block_type": 1,  # 标题1
                 "heading1": {
                     "elements": [{"text_run": {"content": text}}]
                 }
             })
-        elif para.startswith('## ') and not para.startswith('### '):
-            # 标题2
-            text = para.lstrip('# ').strip()
+        elif line.startswith('## ') and not line.startswith('### '):
+            text = line[3:].strip()
             blocks.append({
-                "block_type": 2,  # heading2
+                "block_type": 3,  # 标题2
                 "heading2": {
                     "elements": [{"text_run": {"content": text}}]
                 }
             })
-        elif para.startswith('### '):
-            # 标题3
-            text = para.lstrip('# ').strip()
+        elif line.startswith('### '):
+            text = line[4:].strip()
             blocks.append({
-                "block_type": 3,  # heading3
+                "block_type": 4,  # 标题3
                 "heading3": {
                     "elements": [{"text_run": {"content": text}}]
                 }
             })
-        elif para.startswith('- ') or para.startswith('* '):
-            # 列表项
-            text = para.lstrip('- *').strip()
+        elif line.startswith('- ') or line.startswith('* '):
+            text = line[2:].strip()
+            # 移除 markdown 标记
+            text = text.replace('**', '').replace('*', '').replace('`', '')
             blocks.append({
-                "block_type": 4,  # bullet
+                "block_type": 5,  # 无序列表
                 "bullet": {
                     "elements": [{"text_run": {"content": text}}]
                 }
             })
         else:
-            # 普通段落
+            # 普通文本
             # 移除 markdown 标记
-            text = para.replace('**', '').replace('*', '').replace('`', '')
+            text = line.replace('**', '').replace('*', '').replace('`', '')
             if text:
                 blocks.append({
-                    "block_type": 11,  # text (普通文本块)
+                    "block_type": 2,  # 文本块
                     "text": {
                         "elements": [{"text_run": {"content": text}}]
                     }
@@ -175,17 +180,19 @@ def add_document_content(token, document_id, content):
     
     print(f"   准备写入 {len(blocks)} 个块...")
     
-    # 分批写入，每批最多 50 个块
+    # 飞书 API 限制每次最多 50 个块
     batch_size = 50
     total_written = 0
     
     for i in range(0, len(blocks), batch_size):
         batch = blocks[i:i+batch_size]
         
-        data = json.dumps({
+        request_body = {
             "index": -1,  # 在末尾添加
             "children": batch
-        }).encode('utf-8')
+        }
+        
+        data = json.dumps(request_body, ensure_ascii=False).encode('utf-8')
         
         headers = {
             'Authorization': f'Bearer {token}',
@@ -194,21 +201,23 @@ def add_document_content(token, document_id, content):
         
         try:
             req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+            
             with urllib.request.urlopen(req, timeout=60) as response:
                 result = json.loads(response.read().decode('utf-8'))
             
-            # 调试：打印响应
             if result.get('code') != 0:
                 print(f"❌ 写入内容失败: {result.get('msg')}")
                 print(f"   响应: {json.dumps(result, ensure_ascii=False)[:500]}")
                 return False
             
-            total_written += len(batch)
-            print(f"   已写入批次 {i//batch_size + 1}: {len(batch)} 个块")
+            # 检查返回的数据
+            children = result.get('data', {}).get('children', [])
+            total_written += len(children)
+            print(f"   已写入批次 {i//batch_size + 1}: {len(children)} 个块")
             
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8')
-            print(f"❌ HTTP 错误 {e.code}: {error_body}")
+            print(f"❌ HTTP 错误 {e.code}: {error_body[:500]}")
             return False
         except Exception as e:
             print(f"❌ 请求失败: {e}")
