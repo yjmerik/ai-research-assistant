@@ -68,7 +68,19 @@ def create_document(token, title):
         
         doc_data = result.get('document', {})
         doc_id = doc_data.get('document_id')
-        doc_url = f"https://www.feishu.cn/docx/{doc_id}"
+        
+        # 调试：打印完整的 API 响应
+        print(f"   API 返回数据: {json.dumps(doc_data, ensure_ascii=False)[:500]}")
+        
+        # 尝试多种可能的 URL 格式
+        # 飞书文档 URL 格式可能因租户不同而不同
+        if doc_id:
+            # 标准格式
+            doc_url = f"https://bytedance.feishu.cn/docx/{doc_id}"
+            # 也可以尝试其他格式
+            # doc_url = f"https://www.feishu.cn/docx/{doc_id}"
+        else:
+            doc_url = None
         
         print(f"✅ 文档创建成功")
         print(f"   文档 ID: {doc_id}")
@@ -189,13 +201,17 @@ def add_document_content(token, document_id, content):
     return True
 
 
-def send_notification(token, user_id, doc_url, topic, paper_count):
+def send_notification(token, user_id, doc_id, topic, paper_count):
     """发送飞书消息通知"""
     print("📤 发送飞书通知...")
     
     url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
     
     from datetime import datetime
+    
+    # 构建文档链接 - 使用正确的飞书文档 URL 格式
+    # 个人用户通常是 bytedance.feishu.cn
+    doc_url = f"https://bytedance.feishu.cn/docx/{doc_id}"
     
     card = {
         "config": {"wide_screen_mode": True},
@@ -215,7 +231,7 @@ def send_notification(token, user_id, doc_url, topic, paper_count):
                 "tag": "div",
                 "text": {
                     "tag": "lark_md",
-                    "content": f"⏰ 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                    "content": f"⏰ 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n📝 文档 ID: {doc_id[:20]}..."
                 }
             },
             {
@@ -333,7 +349,7 @@ def main():
     
     # 发送通知
     if user_id:
-        send_notification(token, user_id, doc_info['document_url'], topic, paper_count)
+        send_notification(token, user_id, doc_info['document_id'], topic, paper_count)
     
     # 设置 GitHub Actions 输出
     github_output = os.environ.get('GITHUB_OUTPUT')
