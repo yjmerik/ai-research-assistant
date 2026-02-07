@@ -236,7 +236,105 @@ def add_document_content(token, doc_id, page_block_id, content):
     return True
 
 
-def send_notification(token, user_id, doc_id, topic, paper_count):
+def load_analysis():
+    """加载解读结果"""
+    # 检查当前目录的文件
+    print("📂 检查当前目录文件:")
+    try:
+        files = os.listdir('.')
+        md_files = [f for f in files if f.endswith('.md')]
+        json_files = [f for f in files if f.endswith('.json')]
+        print(f"   Markdown 文件: {md_files}")
+        print(f"   JSON 文件: {json_files}")
+    except Exception as e:
+        print(f"   无法列出文件: {e}")
+    
+    # 尝试读取解读文件
+    try:
+        if os.path.exists('latest_analysis.md'):
+            print("   找到 latest_analysis.md")
+            with open('latest_analysis.md', 'r', encoding='utf-8') as f:
+                content = f.read()
+            print(f"   文件大小: {len(content)} 字符")
+            return content
+    except Exception as e:
+        print(f"   读取 latest_analysis.md 失败: {e}")
+    
+    # 如果没有，查找最新的 analysis_*.md
+    import glob
+    files = glob.glob('analysis_*.md')
+    if files:
+        latest = max(files, key=os.path.getctime)
+        print(f"   找到 {latest}")
+        with open(latest, 'r', encoding='utf-8') as f:
+            content = f.read()
+        print(f"   文件大小: {len(content)} 字符")
+        return content
+    
+    print("   ❌ 没有找到解读文件")
+    return None
+
+
+def load_papers_as_content():
+    """将论文数据转换为文档内容（备用方案）"""
+    import glob
+    
+    # 查找论文文件
+    files = glob.glob('papers_*.json') + ['latest_papers.json']
+    
+    for file in files:
+        if os.path.exists(file):
+            try:
+                print(f"   尝试读取论文文件: {file}")
+                with open(file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                topic = data.get('topic', 'AI Agent')
+                papers = data.get('papers', [])
+                
+                if not papers:
+                    continue
+                
+                # 构建简单的报告内容
+                from datetime import datetime
+                lines = []
+                lines.append(f"# {topic} - 论文收集结果")
+                lines.append("")
+                lines.append(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                lines.append(f"论文数量: {len(papers)}")
+                lines.append("")
+                lines.append("---")
+                lines.append("")
+                lines.append("⚠️ 注意：扣子 Bot 解读超时，以下是原始论文信息")
+                lines.append("")
+                
+                for i, paper in enumerate(papers, 1):
+                    lines.append(f"## {i}. {paper.get('title', 'N/A')}")
+                    lines.append("")
+                    lines.append(f"**作者**: {', '.join(paper.get('authors', []))}")
+                    lines.append("")
+                    lines.append(f"**发表日期**: {paper.get('published', 'N/A')}")
+                    lines.append("")
+                    lines.append(f"**摘要**: {paper.get('summary', 'N/A')}")
+                    lines.append("")
+                    if paper.get('url'):
+                        lines.append(f"**链接**: {paper.get('url')}")
+                        lines.append("")
+                    lines.append("---")
+                    lines.append("")
+                
+                content = '\n'.join(lines)
+                print(f"   已生成论文报告: {len(content)} 字符")
+                return content
+                
+            except Exception as e:
+                print(f"   读取 {file} 失败: {e}")
+                continue
+    
+    return None
+
+
+def send_notification(token, user_id, doc_id, topic, paper_count, is_fallback=False):
     """发送飞书消息通知"""
     print("📤 发送飞书通知...")
     
@@ -251,18 +349,25 @@ def send_notification(token, user_id, doc_id, topic, paper_count):
     # 构建文档链接
     doc_url = f"https://my.feishu.cn/docx/{doc_id}"
     
+    if is_fallback:
+        title = f"📚 {topic} - 论文收集完成 (无AI解读)"
+        content_text = f"⚠️ 扣子 Bot 解读超时，仅保存原始论文信息\n📊 共 **{paper_count}** 篇论文"
+    else:
+        title = f"📚 {topic} - 研究简报已生成"
+        content_text = f"✅ **{topic}** 的论文解读已完成！\n📊 共解读 **{paper_count}** 篇论文"
+    
     card = {
         "config": {"wide_screen_mode": True},
         "header": {
-            "title": {"tag": "plain_text", "content": f"📚 {topic} - 研究简报已生成"},
-            "template": "green"
+            "title": {"tag": "plain_text", "content": title},
+            "template": "green" if not is_fallback else "orange"
         },
         "elements": [
             {
                 "tag": "div",
                 "text": {
                     "tag": "lark_md",
-                    "content": f"✅ **{topic}** 的论文解读已完成！\n📊 共解读 **{paper_count}** 篇论文"
+                    "content": content_text
                 }
             },
             {
@@ -319,24 +424,6 @@ def send_notification(token, user_id, doc_id, topic, paper_count):
         return False
 
 
-def load_analysis():
-    """加载解读结果"""
-    try:
-        with open('latest_analysis.md', 'r', encoding='utf-8') as f:
-            return f.read()
-    except:
-        pass
-    
-    import glob
-    files = glob.glob('analysis_*.md')
-    if files:
-        latest = max(files, key=os.path.getctime)
-        with open(latest, 'r', encoding='utf-8') as f:
-            return f.read()
-    
-    return None
-
-
 def main():
     print("=" * 70)
     print("📄 创建飞书文档")
@@ -357,15 +444,24 @@ def main():
             print("   - FEISHU_APP_SECRET")
         return 1
     
-    # 加载解读结果
-    content = load_analysis()
-    if not content:
-        print("❌ 没有找到解读结果")
-        return 1
-    
     print(f"主题: {topic}")
     print(f"论文数: {paper_count}")
-    print(f"解读长度: {len(content)} 字符")
+    print()
+    
+    # 加载解读结果
+    content = load_analysis()
+    is_fallback = False
+    
+    if not content:
+        print("⚠️  没有找到扣子解读结果，尝试使用原始论文数据...")
+        content = load_papers_as_content()
+        is_fallback = True
+    
+    if not content:
+        print("❌ 没有任何内容可写入")
+        return 1
+    
+    print(f"内容长度: {len(content)} 字符")
     print()
     
     # 获取 token
@@ -374,7 +470,10 @@ def main():
         return 1
     
     from datetime import datetime
-    doc_title = f"{topic} - AI解读版研究简报 {datetime.now().strftime('%Y-%m-%d')}"
+    if is_fallback:
+        doc_title = f"{topic} - 论文收集结果 {datetime.now().strftime('%Y-%m-%d')}"
+    else:
+        doc_title = f"{topic} - AI解读版研究简报 {datetime.now().strftime('%Y-%m-%d')}"
     
     # 创建文档
     doc_info = create_document(token, doc_title)
@@ -393,7 +492,7 @@ def main():
     
     # 发送通知
     if user_id:
-        send_notification(token, user_id, doc_info['document_id'], topic, paper_count)
+        send_notification(token, user_id, doc_info['document_id'], topic, paper_count, is_fallback)
     
     # 设置 GitHub Actions 输出
     github_output = os.environ.get('GITHUB_OUTPUT')
