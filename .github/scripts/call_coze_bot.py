@@ -102,27 +102,32 @@ class CozeBotClient:
         # 等待并获取回复
         return self._wait_for_chat_completion(chat_id)
     
-    def _wait_for_chat_completion(self, chat_id, timeout=120):
+    def _wait_for_chat_completion(self, chat_id, timeout=180):
         """等待对话完成并获取结果"""
         print(f"⏳ 等待 Bot 回复...")
         start_time = time.time()
+        check_count = 0
         
         while time.time() - start_time < timeout:
+            check_count += 1
             # 查询对话状态
-            result = self._request('GET', f'/v3/chat/retrieve?conversation_id={self.conversation_id}&chat_id={chat_id}')
+            endpoint = f'/v3/chat/retrieve?conversation_id={self.conversation_id}&chat_id={chat_id}'
+            result = self._request('GET', endpoint)
             
             if result.get('code') != 0:
                 print(f"   查询失败: {result.get('msg', '未知错误')}")
-                time.sleep(2)
+                time.sleep(3)
                 continue
             
             data = result.get('data', {})
             status = data.get('status')
             
-            print(f"   状态: {status}")
+            # 只打印状态变化
+            if check_count == 1 or check_count % 5 == 0:
+                print(f"   状态: {status} (检查 #{check_count})")
             
             if status == 'completed':
-                # 获取消息列表
+                # 直接尝试从消息列表获取
                 return self._get_chat_messages()
             elif status in ['failed', 'cancelled']:
                 print(f"❌ 对话失败: {data.get('last_error', '未知错误')}")
@@ -137,25 +142,59 @@ class CozeBotClient:
         """获取对话消息列表"""
         print(f"📥 获取回复内容...")
         
-        result = self._request('GET', f'/v3/chat/message/list?conversation_id={self.conversation_id}')
+        # 尝试使用 conversation_id 获取消息
+        # 注意：v3 API 的消息列表可能使用不同的端点
+        endpoint = f'/v1/conversation/message/list?conversation_id={self.conversation_id}'
+        result = self._request('GET', endpoint)
+        
+        # 如果 v1 失败，尝试 v3
+        if result.get('code') != 0:
+            print(f"   v1 API 失败，尝试 v3...")
+            endpoint = f'/v3/chat/message/list?conversation_id={self.conversation_id}'
+            result = self._request('GET', endpoint)
         
         if result.get('code') != 0:
             print(f"❌ 获取消息失败: {result.get('msg', '未知错误')}")
+            print(f"   响应详情: {json.dumps(result, ensure_ascii=False)[:500]}")
             return None
         
+        # v3 API 返回 data 是列表
         messages = result.get('data', [])
         
-        # 找到 assistant 的回复
+        if not messages:
+            print("❌ 没有收到消息")
+            return None
+        
+        print(f"   收到 {len(messages)} 条消息")
+        
+        # 找到 assistant 的 answer 类型消息
         for msg in messages:
-            if msg.get('type') == 'answer' and msg.get('role') == 'assistant':
-                content = msg.get('content', '')
-                print(f"✅ 收到回复 ({len(content)} 字符)")
+            msg_type = msg.get('type')
+            role = msg.get('role')
+            content = msg.get('content', '')
+            
+            print(f"   消息: type={msg_type}, role={role}, content_len={len(content)}")
+            
+            if msg_type == 'answer' and role == 'assistant' and content:
+                print(f"✅ 找到回复 ({len(content)} 字符)")
                 return content
         
-        # 如果没有 answer 类型，返回最后一条消息
-        if messages:
-            return messages[-1].get('content', '')
+        # 如果没有 answer 类型，返回最后一条 assistant 消息
+        for msg in reversed(messages):
+            if msg.get('role') == 'assistant':
+                content = msg.get('content', '')
+                if content:
+                    print(f"✅ 使用最后一条 assistant 消息 ({len(content)} 字符)")
+                    return content
         
+        # 最后尝试返回任何有内容的消息
+        for msg in reversed(messages):
+            content = msg.get('content', '')
+            if content:
+                print(f"✅ 使用消息内容 ({len(content)} 字符)")
+                return content
+        
+        print("❌ 没有有效的消息内容")
         return None
 
 
