@@ -1,4 +1,4 @@
-name: Coze Bot Research - AI解读版
+name: AI Research with OpenAI Analysis
 
 on:
   schedule:
@@ -18,7 +18,7 @@ on:
         default: '10'
 
 jobs:
-  coze-research:
+  ai-research:
     runs-on: ubuntu-latest
     
     steps:
@@ -43,22 +43,19 @@ jobs:
       run: |
         python .github/scripts/search_arxiv.py
     
-    - name: Send to Coze Bot for analysis
-      id: coze
+    - name: Analyze papers with OpenAI
+      id: analysis
       env:
-        COZE_PAT: ${{ secrets.COZE_PAT }}
-        COZE_BOT_ID: ${{ secrets.COZE_BOT_ID }}
-        COZE_WORKSPACE_ID: ${{ secrets.COZE_WORKSPACE_ID }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         TOPIC: ${{ github.event.inputs.topic || 'AI Agent' }}
       run: |
-        python .github/scripts/call_coze_bot.py
+        python .github/scripts/analyze_with_openai.py
     
     - name: Upload results
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: coze-research-results
+        name: ai-research-results
         path: |
           *.json
           *.md
-          *.log
