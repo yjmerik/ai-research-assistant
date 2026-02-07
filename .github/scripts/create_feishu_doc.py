@@ -62,23 +62,28 @@ def create_document(token, title):
         with urllib.request.urlopen(req, timeout=30) as response:
             result = json.loads(response.read().decode('utf-8'))
         
+        # 调试：打印完整的 API 响应
+        print(f"   完整 API 响应: {json.dumps(result, ensure_ascii=False)[:800]}")
+        
         if result.get('code') != 0:
             print(f"❌ 创建文档失败: {result.get('msg')}")
             return None
         
-        doc_data = result.get('document', {})
-        doc_id = doc_data.get('document_id')
-        
-        # 调试：打印完整的 API 响应
-        print(f"   API 返回数据: {json.dumps(doc_data, ensure_ascii=False)[:500]}")
-        
-        # 尝试多种可能的 URL 格式
-        # 飞书文档 URL 格式可能因租户不同而不同
-        if doc_id:
-            # 使用用户的飞书域名
-            doc_url = f"https://my.feishu.cn/docx/{doc_id}"
+        # 尝试不同的响应结构
+        doc_data = result.get('document') or result.get('data', {})
+        if isinstance(doc_data, dict):
+            doc_id = doc_data.get('document_id')
+            block_id = doc_data.get('block_id') or doc_id
         else:
-            doc_url = None
+            print(f"❌ 意外的响应格式: {type(doc_data)}")
+            return None
+        
+        if not doc_id:
+            print(f"❌ 无法获取文档 ID")
+            return None
+        
+        # 使用用户的飞书域名
+        doc_url = f"https://my.feishu.cn/docx/{doc_id}"
         
         print(f"✅ 文档创建成功")
         print(f"   文档 ID: {doc_id}")
@@ -87,7 +92,7 @@ def create_document(token, title):
         return {
             'document_id': doc_id,
             'document_url': doc_url,
-            'block_id': doc_data.get('block_id')  # 根块 ID
+            'block_id': block_id
         }
         
     except Exception as e:
@@ -202,6 +207,10 @@ def add_document_content(token, document_id, content):
 def send_notification(token, user_id, doc_id, topic, paper_count):
     """发送飞书消息通知"""
     print("📤 发送飞书通知...")
+    
+    if not doc_id:
+        print("❌ 文档 ID 为空，无法发送通知")
+        return False
     
     url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
     
