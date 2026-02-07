@@ -169,8 +169,11 @@ def add_document_content(token, doc_id, page_block_id, content):
                 "bullet": {"elements": [{"text_run": {"content": text}}]}
             })
         elif line.startswith('---'):
-            # 分割线 - block_type 16
-            blocks.append({"block_type": 16, "divider": {}})
+            # 分割线 - 使用空文本块代替（block_type 16 不被支持）
+            blocks.append({
+                "block_type": 2,
+                "text": {"elements": [{"text_run": {"content": "──────────"}}]}
+            })
         else:
             # 普通文本 - block_type 2
             # 移除 markdown 标记
