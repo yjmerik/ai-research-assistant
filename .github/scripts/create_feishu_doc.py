@@ -163,7 +163,7 @@ def add_document_content(token, document_id, content):
             text = para.replace('**', '').replace('*', '').replace('`', '')
             if text:
                 blocks.append({
-                    "block_type": 5,  # text
+                    "block_type": 11,  # text (普通文本块)
                     "text": {
                         "elements": [{"text_run": {"content": text}}]
                     }
@@ -173,12 +173,17 @@ def add_document_content(token, document_id, content):
         print("⚠️  没有内容可写入")
         return True
     
+    print(f"   准备写入 {len(blocks)} 个块...")
+    
     # 分批写入，每批最多 50 个块
     batch_size = 50
+    total_written = 0
+    
     for i in range(0, len(blocks), batch_size):
         batch = blocks[i:i+batch_size]
         
         data = json.dumps({
+            "index": -1,  # 在末尾添加
             "children": batch
         }).encode('utf-8')
         
@@ -192,17 +197,24 @@ def add_document_content(token, document_id, content):
             with urllib.request.urlopen(req, timeout=60) as response:
                 result = json.loads(response.read().decode('utf-8'))
             
+            # 调试：打印响应
             if result.get('code') != 0:
                 print(f"❌ 写入内容失败: {result.get('msg')}")
+                print(f"   响应: {json.dumps(result, ensure_ascii=False)[:500]}")
                 return False
             
-            print(f"   已写入 {len(batch)} 个块")
+            total_written += len(batch)
+            print(f"   已写入批次 {i//batch_size + 1}: {len(batch)} 个块")
             
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8')
+            print(f"❌ HTTP 错误 {e.code}: {error_body}")
+            return False
         except Exception as e:
             print(f"❌ 请求失败: {e}")
             return False
     
-    print(f"✅ 文档内容写入完成 (共 {len(blocks)} 个块)")
+    print(f"✅ 文档内容写入完成 (共 {total_written} 个块)")
     return True
 
 
