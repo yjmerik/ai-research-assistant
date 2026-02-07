@@ -102,7 +102,7 @@ class CozeBotClient:
         # 等待并获取回复
         return self._wait_for_chat_completion(chat_id)
     
-    def _wait_for_chat_completion(self, chat_id, timeout=180):
+    def _wait_for_chat_completion(self, chat_id, timeout=300):
         """等待对话完成并获取结果"""
         print(f"⏳ 等待 Bot 回复...")
         start_time = time.time()
@@ -116,15 +116,15 @@ class CozeBotClient:
             
             if result.get('code') != 0:
                 print(f"   查询失败: {result.get('msg', '未知错误')}")
-                time.sleep(3)
+                time.sleep(5)
                 continue
             
             data = result.get('data', {})
             status = data.get('status')
             
-            # 只打印状态变化
-            if check_count == 1 or check_count % 5 == 0:
-                print(f"   状态: {status} (检查 #{check_count})")
+            # 打印状态，每5次或状态变化时
+            if check_count == 1 or check_count % 5 == 0 or status != 'in_progress':
+                print(f"   状态: {status} (检查 #{check_count}, 已等待 {check_count * 3}秒)")
             
             if status == 'completed':
                 # 直接尝试从消息列表获取
@@ -135,7 +135,10 @@ class CozeBotClient:
             
             time.sleep(3)
         
-        print("⚠️  等待超时")
+        print(f"⚠️  等待超时 (已等待 {timeout}秒)")
+        print("   尝试直接获取消息...")
+        # 超时后仍然尝试获取消息
+        return self._get_chat_messages()
         return None
     
     def _get_chat_messages(self):
