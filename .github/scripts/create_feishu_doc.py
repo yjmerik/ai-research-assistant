@@ -69,8 +69,10 @@ def create_document(token, title):
             print(f"❌ 创建文档失败: {result.get('msg')}")
             return None
         
-        # 尝试不同的响应结构
-        doc_data = result.get('document') or result.get('data', {})
+        # 解析响应结构: result.data.document
+        data = result.get('data', {})
+        doc_data = data.get('document', {}) if isinstance(data, dict) else {}
+        
         if isinstance(doc_data, dict):
             doc_id = doc_data.get('document_id')
             block_id = doc_data.get('block_id') or doc_id
