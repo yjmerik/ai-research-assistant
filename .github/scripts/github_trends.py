@@ -47,7 +47,7 @@ def get_trending_repositories(language=None, since='daily', count=50):
     }
     
     # 如果有 GitHub Token，添加到请求头（提高 API 限制）
-    github_token = os.environ.get('GITHUB_TOKEN')
+    github_token = os.environ.get('GH_TOKEN')
     if github_token:
         headers['Authorization'] = f'token {github_token}'
     

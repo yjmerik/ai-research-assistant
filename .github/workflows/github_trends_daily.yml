@@ -42,7 +42,7 @@ jobs:
     - name: Fetch GitHub Trends
       id: trends
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
         TRENDS_SINCE: ${{ github.event.inputs.since || 'daily' }}
         TRENDS_COUNT: ${{ github.event.inputs.count || '50' }}
         TRENDS_LANGUAGE: ${{ github.event.inputs.language || '' }}
