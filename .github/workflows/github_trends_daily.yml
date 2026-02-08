@@ -1,0 +1,87 @@
+name: GitHub Trends Daily Report
+
+on:
+  schedule:
+    # 每天早上 9:00 UTC+8 (UTC 1:00)
+    - cron: '0 1 * * *'
+  
+  # 允许手动触发
+  workflow_dispatch:
+    inputs:
+      since:
+        description: '时间范围 (daily/weekly/monthly)'
+        required: true
+        default: 'daily'
+      count:
+        description: '项目数量'
+        required: true
+        default: '50'
+      language:
+        description: '语言筛选 (留空为全部)'
+        required: false
+        default: ''
+
+jobs:
+  github-trends:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+    
+    - name: Fetch GitHub Trends
+      id: trends
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TRENDS_SINCE: ${{ github.event.inputs.since || 'daily' }}
+        TRENDS_COUNT: ${{ github.event.inputs.count || '50' }}
+        TRENDS_LANGUAGE: ${{ github.event.inputs.language || '' }}
+      run: |
+        python .github/scripts/github_trends.py
+    
+    - name: Analyze with Kimi AI
+      id: analysis
+      env:
+        KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+      run: |
+        python .github/scripts/analyze_github_trends.py
+    
+    - name: Create Feishu document
+      if: success()
+      env:
+        FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+        FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        FEISHU_USER_OPEN_ID: ${{ secrets.FEISHU_USER_OPEN_ID }}
+        TOPIC: "GitHub Trends"
+        PAPER_COUNT: ${{ github.event.inputs.count || '50' }}
+      run: |
+        # 使用通用脚本创建文档，但指定分析文件
+        python .github/scripts/create_feishu_doc_for_trends.py
+    
+    - name: Send notification
+      if: success()
+      env:
+        FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+        FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        FEISHU_USER_OPEN_ID: ${{ secrets.FEISHU_USER_OPEN_ID }}
+      run: |
+        python .github/scripts/send_trends_notification.py
+    
+    - name: Upload results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: github-trends-results
+        path: |
+          *.json
+          *.md
