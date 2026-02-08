@@ -15,12 +15,11 @@ from datetime import datetime, timedelta
 
 def get_trending_repositories(language=None, since='daily', count=50):
     """
-    获取 GitHub Trending 项目
+    获取与 AI Agent 相关的 GitHub Trending 项目
     
-    由于 GitHub 没有官方的 Trending API，我们使用搜索 API 模拟
-    按最近创建的星星数排序
+    使用 GitHub Search API 搜索 AI Agent 相关的热门项目
     """
-    print(f"🔍 获取 GitHub Trends (语言: {language or 'All'}, 时间: {since})...")
+    print(f"🔍 获取 AI Agent GitHub Trends (语言: {language or 'All'}, 时间: {since})...")
     
     # 计算日期范围
     if since == 'daily':
@@ -32,8 +31,16 @@ def get_trending_repositories(language=None, since='daily', count=50):
     
     date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y-%m-%d')
     
-    # 构建查询
-    query = f"created:>{date}"
+    # 构建 AI Agent 相关的关键词查询
+    ai_agent_keywords = [
+        "agent", "llm-agent", "ai-agent", "autonomous-agent",
+        "multi-agent", "agent-framework", "agent-platform"
+    ]
+    
+    # 构建查询 - 包含 AI Agent 关键词
+    keyword_query = " OR ".join([f"{kw} in:name,description" for kw in ai_agent_keywords])
+    query = f"({keyword_query}) created:>{date}"
+    
     if language:
         query += f" language:{language}"
     
@@ -116,7 +123,7 @@ def generate_markdown_report(projects, since='daily'):
     from datetime import datetime
     
     lines = []
-    lines.append(f"# 🔥 GitHub Trends Top {len(projects)} - {datetime.now().strftime('%Y-%m-%d')}")
+    lines.append(f"# 🤖 AI Agent GitHub Trends Top {len(projects)} - {datetime.now().strftime('%Y-%m-%d')}")
     lines.append("")
     lines.append(f"📅 **收集日期**: {datetime.now().strftime('%Y年%m月%d日')}")
     lines.append(f"📊 **时间范围**: {since}")

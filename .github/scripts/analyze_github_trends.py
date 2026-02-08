@@ -154,7 +154,7 @@ def generate_analysis_report(results, since='daily'):
     from datetime import datetime
     
     lines = []
-    lines.append(f"# 🔥 GitHub Trends AI 分析报告 - {datetime.now().strftime('%Y-%m-%d')}")
+    lines.append(f"# 🤖 AI Agent GitHub Trends AI 分析报告 - {datetime.now().strftime('%Y-%m-%d')}")
     lines.append("")
     lines.append(f"📅 **生成日期**: {datetime.now().strftime('%Y年%m月%d日')}")
     lines.append(f"📊 **时间范围**: {since}")

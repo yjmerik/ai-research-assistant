@@ -307,7 +307,7 @@ def main():
         return 1
     
     from datetime import datetime
-    doc_title = f"🔥 GitHub Trends AI 分析报告 {datetime.now().strftime('%Y-%m-%d')}"
+    doc_title = f"🤖 AI Agent GitHub Trends 分析报告 {datetime.now().strftime('%Y-%m-%d')}"
     
     # 创建文档
     doc_info = create_document(token, doc_title)

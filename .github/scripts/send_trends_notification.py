@@ -46,7 +46,7 @@ def send_notification(token, user_id, doc_id, doc_url):
     card = {
         "config": {"wide_screen_mode": True},
         "header": {
-            "title": {"tag": "plain_text", "content": "🔥 GitHub Trends 日报"},
+            "title": {"tag": "plain_text", "content": "🤖 AI Agent GitHub Trends 日报"},
             "template": "blue"
         },
         "elements": [
@@ -54,7 +54,7 @@ def send_notification(token, user_id, doc_id, doc_url):
                 "tag": "div",
                 "text": {
                     "tag": "lark_md",
-                    "content": f"✅ **GitHub Trends** AI 分析报告已生成！\n📊 包含 **Top 50** 热门项目"
+                    "content": f"✅ **AI Agent GitHub Trends** 分析报告已生成！\n🤖 包含 **Top 50** AI Agent 热门项目"
                 }
             },
             {
@@ -68,7 +68,7 @@ def send_notification(token, user_id, doc_id, doc_url):
                 "tag": "div",
                 "text": {
                     "tag": "lark_md",
-                    "content": "📋 **报告内容**: \n• Top 50 热门项目\n• 每个项目的 AI 总结\n• 功能特点分析\n• GitHub 链接"
+                    "content": "📋 **报告内容**: \n• Top 50 AI Agent 热门项目\n• 每个项目的 AI 总结\n• 功能特点分析\n• GitHub 链接\n• 涵盖 agent、llm-agent、ai-agent 等关键词"
                 }
             },
             {
