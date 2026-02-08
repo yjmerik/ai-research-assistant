@@ -31,15 +31,9 @@ def get_trending_repositories(language=None, since='daily', count=50):
     
     date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y-%m-%d')
     
-    # 构建 AI Agent 相关的关键词查询
-    ai_agent_keywords = [
-        "agent", "llm-agent", "ai-agent", "autonomous-agent",
-        "multi-agent", "agent-framework", "agent-platform"
-    ]
-    
-    # 构建查询 - 包含 AI Agent 关键词
-    keyword_query = " OR ".join([f"{kw} in:name,description" for kw in ai_agent_keywords])
-    query = f"({keyword_query}) created:>{date}"
+    # 构建 AI Agent 相关的关键词查询（限制在5个以内）
+    # GitHub API 限制: 最多5个 AND/OR/NOT 操作符
+    query = f"(agent in:name,description OR ai-agent in:name,description OR llm-agent in:name,description) created:>{date}"
     
     if language:
         query += f" language:{language}"
