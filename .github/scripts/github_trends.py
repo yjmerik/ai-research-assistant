@@ -12,6 +12,65 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timedelta
 
+# 历史记录文件
+HISTORY_FILE = 'github_trends_history.json'
+
+
+def load_history():
+    """加载已处理的项目历史记录"""
+    try:
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"⚠️  加载历史记录失败: {e}")
+    return {'processed_projects': [], 'last_update': ''}
+
+
+def save_history(history):
+    """保存已处理的项目历史记录"""
+    try:
+        history['last_update'] = datetime.now().isoformat()
+        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+        print(f"💾 历史记录已保存 ({len(history['processed_projects'])} 个项目)")
+    except Exception as e:
+        print(f"⚠️  保存历史记录失败: {e}")
+
+
+def filter_new_projects(projects, history):
+    """过滤掉已处理过的项目"""
+    processed = set(history.get('processed_projects', []))
+    new_projects = []
+    skipped = 0
+    
+    for project in projects:
+        project_id = project.get('full_name', '')
+        if project_id and project_id not in processed:
+            new_projects.append(project)
+        else:
+            skipped += 1
+    
+    print(f"📊 项目统计: 新发现 {len(new_projects)} 个, 已跳过 {skipped} 个已处理项目")
+    return new_projects
+
+
+def add_to_history(projects, history):
+    """将新项目添加到历史记录"""
+    processed = history.get('processed_projects', [])
+    for project in projects:
+        project_id = project.get('full_name', '')
+        if project_id and project_id not in processed:
+            processed.append(project_id)
+    
+    # 只保留最近 500 个项目的历史记录（避免文件过大）
+    if len(processed) > 500:
+        processed = processed[-500:]
+        print(f"🧹 历史记录已清理，保留最近 500 个项目")
+    
+    history['processed_projects'] = processed
+    return history
+
 
 def get_trending_repositories(language=None, since='daily', count=50):
     """
@@ -170,7 +229,7 @@ def generate_markdown_report(projects, since='daily'):
 
 def main():
     print("=" * 70)
-    print("🔥 GitHub Trends 收集器")
+    print("🔥 GitHub Trends 收集器 (智能去重版)")
     print("=" * 70)
     
     # 获取环境变量
@@ -183,24 +242,51 @@ def main():
     print(f"语言筛选: {language or 'All'}")
     print()
     
-    # 获取趋势项目
-    projects = get_trending_repositories(language=language or None, since=since, count=count)
+    # 加载历史记录
+    print("📚 加载历史记录...")
+    history = load_history()
+    print(f"   已处理过 {len(history.get('processed_projects', []))} 个项目")
+    print()
+    
+    # 获取趋势项目（获取更多以便过滤后有足够的项目）
+    fetch_count = count * 3  # 获取3倍数量的项目用于过滤
+    print(f"🔍 正在获取项目 (目标: {count} 个新项目)...")
+    projects = get_trending_repositories(language=language or None, since=since, count=fetch_count)
     
     if not projects:
         print("❌ 未找到项目")
         return 1
     
+    # 过滤掉已处理过的项目
+    print("\n🔍 过滤已处理的项目...")
+    new_projects = filter_new_projects(projects, history)
+    
+    # 如果新项目不足，给出提示
+    if len(new_projects) < count:
+        print(f"⚠️  警告: 只有 {len(new_projects)} 个新项目（目标 {count} 个）")
+        if len(new_projects) == 0:
+            print("💡 建议: 所有项目都已处理过，可以尝试扩大时间范围（weekly/monthly）")
+    
+    # 取前 count 个项目
+    new_projects = new_projects[:count]
+    
+    print(f"\n✅ 本次将处理 {len(new_projects)} 个新项目")
+    
+    # 更新历史记录
+    history = add_to_history(new_projects, history)
+    save_history(history)
+    
     # 保存项目数据
-    save_projects(projects, since)
+    save_projects(new_projects, since)
     
     # 生成报告
-    report = generate_markdown_report(projects, since)
+    report = generate_markdown_report(new_projects, since)
     
     # 设置 GitHub Actions 输出
     github_output = os.environ.get('GITHUB_OUTPUT')
     if github_output:
         with open(github_output, 'a') as f:
-            f.write(f"project_count={len(projects)}\n")
+            f.write(f"project_count={len(new_projects)}\n")
             f.write(f"report_file=latest_github_trends.md\n")
     
     print("\n✅ GitHub Trends 收集完成")

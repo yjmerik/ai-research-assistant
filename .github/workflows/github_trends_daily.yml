@@ -85,3 +85,11 @@ jobs:
         path: |
           *.json
           *.md
+    
+    - name: Commit history file
+      if: success()
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add github_trends_history.json
+        git diff --staged --quiet || (git commit -m "Update GitHub Trends history" && git push)
