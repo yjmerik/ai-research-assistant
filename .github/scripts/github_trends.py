@@ -17,7 +17,7 @@ def get_trending_repositories(language=None, since='daily', count=50):
     """
     获取与 AI Agent 相关的 GitHub Trending 项目
     
-    使用 GitHub Search API 搜索 AI Agent 相关的热门项目
+    搜索近期获得 stars 最多的 AI Agent 相关项目（真正的热门项目）
     """
     print(f"🔍 获取 AI Agent GitHub Trends (语言: {language or 'All'}, 时间: {since})...")
     
@@ -31,9 +31,10 @@ def get_trending_repositories(language=None, since='daily', count=50):
     
     date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y-%m-%d')
     
-    # 构建 AI Agent 相关的关键词查询（限制在5个以内）
-    # GitHub API 限制: 最多5个 AND/OR/NOT 操作符
-    query = f"(agent in:name,description OR ai-agent in:name,description OR llm-agent in:name,description) created:>{date}"
+    # 构建 AI Agent 相关的关键词查询
+    # 搜索近期有推送、且 stars 数较多的项目
+    # 使用 stars:>10 过滤掉 0 star 的项目
+    query = "(agent OR ai-agent OR llm-agent OR autonomous-agent) stars:>10 pushed:>" + date
     
     if language:
         query += f" language:{language}"
