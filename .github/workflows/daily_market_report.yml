@@ -34,6 +34,16 @@ jobs:
       run: |
         python .github/scripts/analyze_market.py
     
+    - name: Create Feishu document
+      id: create_doc
+      env:
+        FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+        FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        CONTENT_TYPE: 'market'
+        DOC_TITLE: '📊 全球市场日报'
+      run: |
+        python .github/scripts/create_feishu_doc.py
+    
     - name: Send Feishu notification
       env:
         FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}

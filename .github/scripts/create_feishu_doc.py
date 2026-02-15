@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-创建飞书文档并写入解读内容
+创建飞书文档并写入内容
 
-使用飞书 Doc API 创建文档并添加内容
-参考之前成功的 auto_research.py 实现
+通用脚本：支持论文解读、市场分析等多种内容类型
 """
 
 import os
@@ -62,6 +61,9 @@ def create_document(token, title):
         with urllib.request.urlopen(req, timeout=30) as response:
             result = json.loads(response.read().decode('utf-8'))
         
+        # 调试：打印完整的 API 响应
+        print(f"   完整 API 响应: {json.dumps(result, ensure_ascii=False)[:800]}")
+        
         if result.get('code') != 0:
             print(f"❌ 创建文档失败: {result.get('msg')}")
             return None
@@ -79,7 +81,9 @@ def create_document(token, title):
         # 使用用户的飞书域名
         doc_url = f"https://my.feishu.cn/docx/{doc_id}"
         
-        print(f"✅ 文档创建成功: {doc_id}")
+        print(f"✅ 文档创建成功")
+        print(f"   文档 ID: {doc_id}")
+        print(f"   文档链接: {doc_url}")
         
         return {
             'document_id': doc_id,
@@ -126,62 +130,79 @@ def get_page_block_id(token, doc_id):
 
 
 def add_document_content(token, doc_id, page_block_id, content):
-    """添加文档内容 - 参考之前成功的实现"""
+    """添加文档内容 - 使用纯文本方式"""
     print("📝 写入文档内容...")
     print(f"   内容长度: {len(content)} 字符")
     
     url = f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_id}/blocks/{page_block_id}/children"
     
-    # 转换内容为块 - 使用正确的块类型编号（参考之前成功的脚本）
-    # heading1: 3, heading2: 4, heading3: 5, bullet: 12, text: 2, divider: 16
+    # 将内容按行分割，每行作为一个文本块
+    lines = content.split('\n')
     blocks = []
     
-    for line in content.split('\n'):
-        line = line.rstrip()
+    for line in lines[:100]:  # 限制最多 100 行
+        line = line.strip()
         if not line:
+            # 空行也创建一个空文本块
+            blocks.append({
+                "block_type": 2,  # 文本块
+                "text": {
+                    "elements": []
+                }
+            })
             continue
         
-        if line.startswith('# '):
-            # 标题1 - block_type 3
+        # 检测是否为标题
+        if line.startswith('# ') and not line.startswith('## '):
+            text = line[2:].strip()
             blocks.append({
-                "block_type": 3,
-                "heading1": {"elements": [{"text_run": {"content": line[2:].strip()}}]}
+                "block_type": 1,  # 标题1
+                "heading1": {
+                    "elements": [{"text_run": {"content": text}}]
+                }
             })
-        elif line.startswith('## '):
-            # 标题2 - block_type 4
+        elif line.startswith('## ') and not line.startswith('### '):
+            text = line[3:].strip()
             blocks.append({
-                "block_type": 4,
-                "heading2": {"elements": [{"text_run": {"content": line[3:].strip()}}]}
+                "block_type": 3,  # 标题2
+                "heading2": {
+                    "elements": [{"text_run": {"content": text}}]
+                }
             })
         elif line.startswith('### '):
-            # 标题3 - block_type 5
+            text = line[4:].strip()
             blocks.append({
-                "block_type": 5,
-                "heading3": {"elements": [{"text_run": {"content": line[4:].strip()}}]}
+                "block_type": 4,  # 标题3
+                "heading3": {
+                    "elements": [{"text_run": {"content": text}}]
+                }
             })
         elif line.startswith('- ') or line.startswith('* '):
-            # 无序列表 - block_type 12
             text = line[2:].strip()
             # 移除 markdown 标记
             text = text.replace('**', '').replace('*', '').replace('`', '')
             blocks.append({
-                "block_type": 12,
-                "bullet": {"elements": [{"text_run": {"content": text}}]}
+                "block_type": 5,  # 无序列表
+                "bullet": {
+                    "elements": [{"text_run": {"content": text}}]
+                }
             })
-        elif line.startswith('---'):
-            # 分割线 - 使用空文本块代替（block_type 16 不被支持）
+        elif line.startswith('──────────') or line.startswith('---'):
+            # 分割线 - 使用文本块代替
             blocks.append({
                 "block_type": 2,
                 "text": {"elements": [{"text_run": {"content": "──────────"}}]}
             })
         else:
-            # 普通文本 - block_type 2
+            # 普通文本
             # 移除 markdown 标记
             text = line.replace('**', '').replace('*', '').replace('`', '')
             if text:
                 blocks.append({
-                    "block_type": 2,
-                    "text": {"elements": [{"text_run": {"content": text}}]}
+                    "block_type": 2,  # 文本块
+                    "text": {
+                        "elements": [{"text_run": {"content": text}}]
+                    }
                 })
     
     if not blocks:
@@ -190,12 +211,12 @@ def add_document_content(token, doc_id, page_block_id, content):
     
     print(f"   准备写入 {len(blocks)} 个块...")
     
-    # 分批添加内容，每批最多 50 个块
+    # 分批写入，每批最多 50 个块
     batch_size = 50
     total_written = 0
     
     for i in range(0, len(blocks), batch_size):
-        batch = blocks[i:i + batch_size]
+        batch = blocks[i:i+batch_size]
         
         request_body = {
             "index": -1,  # 在末尾添加
@@ -223,10 +244,6 @@ def add_document_content(token, doc_id, page_block_id, content):
             total_written += len(batch)
             print(f"   已写入批次 {i//batch_size + 1}: {len(batch)} 个块")
             
-            # 如果还有更多批次，稍作等待
-            if i + batch_size < len(blocks):
-                time.sleep(0.5)
-            
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8')
             print(f"❌ HTTP 错误 {e.code}: {error_body[:500]}")
@@ -239,207 +256,43 @@ def add_document_content(token, doc_id, page_block_id, content):
     return True
 
 
-def load_analysis():
-    """加载解读结果"""
-    import glob
+def load_content(content_type='paper'):
+    """加载内容文件
     
-    # 打印当前工作目录
-    cwd = os.getcwd()
-    print(f"📂 当前工作目录: {cwd}")
+    content_type: 'paper' | 'market'
+    """
+    # 根据类型选择文件
+    if content_type == 'market':
+        # 市场分析报告
+        files_to_try = ['latest_market_report.md']
+    else:
+        # 默认论文解读
+        files_to_try = ['latest_analysis.md']
     
-    # 检查当前目录的文件
-    print("📂 检查当前目录文件:")
-    try:
-        files = os.listdir('.')
-        md_files = [f for f in files if f.endswith('.md')]
-        json_files = [f for f in files if f.endswith('.json')]
-        print(f"   Markdown 文件: {md_files}")
-        print(f"   JSON 文件: {json_files}")
-    except Exception as e:
-        print(f"   无法列出文件: {e}")
-    
-    # 按优先级尝试读取解读文件
-    # 1. 优先读取 latest_analysis.md
-    if os.path.exists('latest_analysis.md'):
+    for filepath in files_to_try:
         try:
-            print("   读取 latest_analysis.md...")
-            with open('latest_analysis.md', 'r', encoding='utf-8') as f:
-                content = f.read()
-            if content.strip():
-                print(f"   ✅ 文件大小: {len(content)} 字符")
-                return content
-            else:
-                print("   ⚠️ 文件为空")
+            if os.path.exists(filepath):
+                print(f"   读取 {filepath}...")
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                if content.strip():
+                    print(f"   ✅ 文件大小: {len(content)} 字符")
+                    return content
         except Exception as e:
             print(f"   ❌ 读取失败: {e}")
     
-    # 2. 查找 analysis_*.md
-    files = glob.glob('analysis_*.md')
+    # 如果没有找到，尝试查找其他 md 文件
+    import glob
+    files = glob.glob('*.md')
     if files:
         latest = max(files, key=os.path.getctime)
         try:
-            print(f"   读取 {latest}...")
             with open(latest, 'r', encoding='utf-8') as f:
-                content = f.read()
-            if content.strip():
-                print(f"   ✅ 文件大小: {len(content)} 字符")
-                return content
-            else:
-                print("   ⚠️ 文件为空")
-        except Exception as e:
-            print(f"   ❌ 读取失败: {e}")
-    
-    print("   ❌ 没有找到解读文件")
-    return None
-
-
-def load_papers_as_content():
-    """将论文数据转换为文档内容（备用方案）"""
-    import glob
-    
-    # 查找论文文件
-    files = glob.glob('papers_*.json') + ['latest_papers.json']
-    
-    for file in files:
-        if os.path.exists(file):
-            try:
-                print(f"   尝试读取论文文件: {file}")
-                with open(file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                
-                topic = data.get('topic', 'AI Agent')
-                papers = data.get('papers', [])
-                
-                if not papers:
-                    continue
-                
-                # 构建简单的报告内容
-                from datetime import datetime
-                lines = []
-                lines.append(f"# {topic} - 论文收集结果")
-                lines.append("")
-                lines.append(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                lines.append(f"论文数量: {len(papers)}")
-                lines.append("")
-                lines.append("---")
-                lines.append("")
-                lines.append("⚠️ 注意：扣子 Bot 解读超时，以下是原始论文信息")
-                lines.append("")
-                
-                for i, paper in enumerate(papers, 1):
-                    lines.append(f"## {i}. {paper.get('title', 'N/A')}")
-                    lines.append("")
-                    lines.append(f"**作者**: {', '.join(paper.get('authors', []))}")
-                    lines.append("")
-                    lines.append(f"**发表日期**: {paper.get('published', 'N/A')}")
-                    lines.append("")
-                    lines.append(f"**摘要**: {paper.get('summary', 'N/A')}")
-                    lines.append("")
-                    if paper.get('url'):
-                        lines.append(f"**链接**: {paper.get('url')}")
-                        lines.append("")
-                    lines.append("---")
-                    lines.append("")
-                
-                content = '\n'.join(lines)
-                print(f"   已生成论文报告: {len(content)} 字符")
-                return content
-                
-            except Exception as e:
-                print(f"   读取 {file} 失败: {e}")
-                continue
+                return f.read()
+        except:
+            pass
     
     return None
-
-
-def send_notification(token, user_id, doc_id, topic, paper_count, is_fallback=False):
-    """发送飞书消息通知"""
-    print("📤 发送飞书通知...")
-    
-    if not doc_id:
-        print("❌ 文档 ID 为空，无法发送通知")
-        return False
-    
-    url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
-    
-    from datetime import datetime
-    
-    # 构建文档链接
-    doc_url = f"https://my.feishu.cn/docx/{doc_id}"
-    
-    if is_fallback:
-        title = f"📚 {topic} - 论文收集完成 (无AI解读)"
-        content_text = f"⚠️ 扣子 Bot 解读超时，仅保存原始论文信息\n📊 共 **{paper_count}** 篇论文"
-    else:
-        title = f"📚 {topic} - 研究简报已生成"
-        content_text = f"✅ **{topic}** 的论文解读已完成！\n📊 共解读 **{paper_count}** 篇论文"
-    
-    card = {
-        "config": {"wide_screen_mode": True},
-        "header": {
-            "title": {"tag": "plain_text", "content": title},
-            "template": "green" if not is_fallback else "orange"
-        },
-        "elements": [
-            {
-                "tag": "div",
-                "text": {
-                    "tag": "lark_md",
-                    "content": content_text
-                }
-            },
-            {
-                "tag": "div",
-                "text": {
-                    "tag": "lark_md",
-                    "content": f"⏰ 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                }
-            },
-            {
-                "tag": "action",
-                "actions": [
-                    {
-                        "tag": "button",
-                        "text": {"tag": "plain_text", "content": "📖 查看飞书文档"},
-                        "type": "primary",
-                        "multi_url": {
-                            "url": doc_url,
-                            "android_url": doc_url,
-                            "ios_url": doc_url,
-                            "pc_url": doc_url
-                        }
-                    }
-                ]
-            }
-        ]
-    }
-    
-    data = json.dumps({
-        "receive_id": user_id,
-        "msg_type": "interactive",
-        "content": json.dumps(card, ensure_ascii=False)
-    }).encode('utf-8')
-    
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
-    }
-    
-    try:
-        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
-        with urllib.request.urlopen(req, timeout=30) as response:
-            result = json.loads(response.read().decode('utf-8'))
-        
-        if result.get('code') != 0:
-            print(f"⚠️  通知发送失败: {result.get('msg')}")
-            return False
-        
-        print("✅ 通知发送成功")
-        return True
-        
-    except Exception as e:
-        print(f"⚠️  通知发送失败: {e}")
-        return False
 
 
 def main():
@@ -451,8 +304,10 @@ def main():
     app_id = os.environ.get('FEISHU_APP_ID')
     app_secret = os.environ.get('FEISHU_APP_SECRET')
     user_id = os.environ.get('FEISHU_USER_OPEN_ID')
-    topic = os.environ.get('TOPIC', 'AI Agent')
-    paper_count = os.environ.get('PAPER_COUNT', '0')
+    
+    # 获取内容类型和标题
+    content_type = os.environ.get('CONTENT_TYPE', 'paper')
+    doc_title = os.environ.get('DOC_TITLE', '')
     
     if not all([app_id, app_secret]):
         print("❌ 缺少必要的环境变量:")
@@ -462,23 +317,13 @@ def main():
             print("   - FEISHU_APP_SECRET")
         return 1
     
-    print(f"主题: {topic}")
-    print(f"论文数: {paper_count}")
-    print()
-    
-    # 加载解读结果
-    content = load_analysis()
-    is_fallback = False
-    
+    # 加载内容
+    content = load_content(content_type)
     if not content:
-        print("⚠️  没有找到扣子解读结果，尝试使用原始论文数据...")
-        content = load_papers_as_content()
-        is_fallback = True
-    
-    if not content:
-        print("❌ 没有任何内容可写入")
+        print("❌ 没有内容可写入")
         return 1
     
+    print(f"内容类型: {content_type}")
     print(f"内容长度: {len(content)} 字符")
     print()
     
@@ -488,10 +333,11 @@ def main():
         return 1
     
     from datetime import datetime
-    if is_fallback:
-        doc_title = f"{topic} - Kimi解读版研究简报 {datetime.now().strftime('%Y-%m-%d')}"
-    else:
-        doc_title = f"{topic} - AI解读版研究简报 {datetime.now().strftime('%Y-%m-%d')}"
+    if not doc_title:
+        if content_type == 'market':
+            doc_title = f"📊 全球市场日报 {datetime.now().strftime('%Y-%m-%d')}"
+        else:
+            doc_title = f"📚 AI解读版研究简报 {datetime.now().strftime('%Y-%m-%d')}"
     
     # 创建文档
     doc_info = create_document(token, doc_title)
@@ -508,9 +354,15 @@ def main():
     if not add_document_content(token, doc_info['document_id'], page_block_id, content):
         print("⚠️  文档内容写入失败，但文档已创建")
     
-    # 发送通知
-    if user_id:
-        send_notification(token, user_id, doc_info['document_id'], topic, paper_count, is_fallback)
+    # 保存文档信息供后续使用
+    doc_info_path = 'doc_info.json'
+    with open(doc_info_path, 'w') as f:
+        json.dump({
+            'doc_id': doc_info['document_id'],
+            'doc_url': doc_info['document_url'],
+            'title': doc_title
+        }, f)
+    print(f"💾 文档信息已保存: {doc_info_path}")
     
     # 设置 GitHub Actions 输出
     github_output = os.environ.get('GITHUB_OUTPUT')
