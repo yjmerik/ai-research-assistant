@@ -153,10 +153,11 @@ def add_document_content(token, doc_id, page_block_id, content):
             continue
         
         # 检测是否为标题
+        # 飞书 API 块类型: heading1=3, heading2=4, heading3=5, text=2, bullet=12
         if line.startswith('# ') and not line.startswith('## '):
             text = line[2:].strip()
             blocks.append({
-                "block_type": 1,  # 标题1
+                "block_type": 3,  # 标题1
                 "heading1": {
                     "elements": [{"text_run": {"content": text}}]
                 }
@@ -164,7 +165,7 @@ def add_document_content(token, doc_id, page_block_id, content):
         elif line.startswith('## ') and not line.startswith('### '):
             text = line[3:].strip()
             blocks.append({
-                "block_type": 3,  # 标题2
+                "block_type": 4,  # 标题2
                 "heading2": {
                     "elements": [{"text_run": {"content": text}}]
                 }
@@ -172,7 +173,7 @@ def add_document_content(token, doc_id, page_block_id, content):
         elif line.startswith('### '):
             text = line[4:].strip()
             blocks.append({
-                "block_type": 4,  # 标题3
+                "block_type": 5,  # 标题3
                 "heading3": {
                     "elements": [{"text_run": {"content": text}}]
                 }
@@ -182,7 +183,7 @@ def add_document_content(token, doc_id, page_block_id, content):
             # 移除 markdown 标记
             text = text.replace('**', '').replace('*', '').replace('`', '')
             blocks.append({
-                "block_type": 5,  # 无序列表
+                "block_type": 12,  # 无序列表
                 "bullet": {
                     "elements": [{"text_run": {"content": text}}]
                 }
