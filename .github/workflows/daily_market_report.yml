@@ -1,0 +1,53 @@
+name: Daily Market Report - 全球市场日报
+
+on:
+  schedule:
+    # 每天北京时间 9:00（A股开盘前）和 21:30（美股开盘前）
+    - cron: '0 1 * * *'      # UTC 1:00 = 北京时间 9:00
+    - cron: '30 13 * * *'    # UTC 13:30 = 北京时间 21:30
+  
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  market-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Fetch market data
+      id: fetch
+      run: |
+        python .github/scripts/fetch_market_data.py
+    
+    - name: Analyze with Kimi AI
+      id: analyze
+      env:
+        KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+      run: |
+        python .github/scripts/analyze_market.py
+    
+    - name: Send Feishu notification
+      env:
+        FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+        FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        FEISHU_USER_OPEN_ID: ${{ secrets.FEISHU_USER_OPEN_ID }}
+      run: |
+        python .github/scripts/send_feishu_market.py
+    
+    - name: Upload reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: market-reports-${{ github.run_id }}
+        path: |
+          *.json
+          *.md
+        retention-days: 7
