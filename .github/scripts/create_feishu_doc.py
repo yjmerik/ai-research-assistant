@@ -141,69 +141,52 @@ def add_document_content(token, doc_id, page_block_id, content):
     blocks = []
     
     for line in lines[:100]:  # 限制最多 100 行
-        line = line.strip()
+        line = line.rstrip()
         if not line:
-            # 空行也创建一个空文本块
-            blocks.append({
-                "block_type": 2,  # 文本块
-                "text": {
-                    "elements": []
-                }
-            })
+            # 空行直接跳过（不创建块）
             continue
         
         # 检测是否为标题
         # 飞书 API 块类型: heading1=3, heading2=4, heading3=5, text=2, bullet=12
-        if line.startswith('# ') and not line.startswith('## '):
-            text = line[2:].strip()
+        if line.startswith('# '):
+            # 标题1 - block_type 3
             blocks.append({
-                "block_type": 3,  # 标题1
-                "heading1": {
-                    "elements": [{"text_run": {"content": text}}]
-                }
+                "block_type": 3,
+                "heading1": {"elements": [{"text_run": {"content": line[2:].strip()}}]}
             })
-        elif line.startswith('## ') and not line.startswith('### '):
-            text = line[3:].strip()
+        elif line.startswith('## '):
+            # 标题2 - block_type 4
             blocks.append({
-                "block_type": 4,  # 标题2
-                "heading2": {
-                    "elements": [{"text_run": {"content": text}}]
-                }
+                "block_type": 4,
+                "heading2": {"elements": [{"text_run": {"content": line[3:].strip()}}]}
             })
         elif line.startswith('### '):
-            text = line[4:].strip()
+            # 标题3 - block_type 5
             blocks.append({
-                "block_type": 5,  # 标题3
-                "heading3": {
-                    "elements": [{"text_run": {"content": text}}]
-                }
+                "block_type": 5,
+                "heading3": {"elements": [{"text_run": {"content": line[4:].strip()}}]}
             })
         elif line.startswith('- ') or line.startswith('* '):
+            # 无序列表 - block_type 12
             text = line[2:].strip()
-            # 移除 markdown 标记
             text = text.replace('**', '').replace('*', '').replace('`', '')
             blocks.append({
-                "block_type": 12,  # 无序列表
-                "bullet": {
-                    "elements": [{"text_run": {"content": text}}]
-                }
+                "block_type": 12,
+                "bullet": {"elements": [{"text_run": {"content": text}}]}
             })
-        elif line.startswith('──────────') or line.startswith('---'):
+        elif line.startswith('──────────'):
             # 分割线 - 使用文本块代替
             blocks.append({
                 "block_type": 2,
                 "text": {"elements": [{"text_run": {"content": "──────────"}}]}
             })
         else:
-            # 普通文本
-            # 移除 markdown 标记
+            # 普通文本 - block_type 2
             text = line.replace('**', '').replace('*', '').replace('`', '')
             if text:
                 blocks.append({
-                    "block_type": 2,  # 文本块
-                    "text": {
-                        "elements": [{"text_run": {"content": text}}]
-                    }
+                    "block_type": 2,
+                    "text": {"elements": [{"text_run": {"content": text}}]}
                 })
     
     if not blocks:
