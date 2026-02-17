@@ -1,6 +1,5 @@
 """
-飞书 AI 助手 v2.0
-支持大模型意图识别和 Skills 系统
+飞书 AI 助手 v2.0 - 调试版本
 """
 import os
 import json
@@ -21,7 +20,6 @@ from skills.market_skill import MarketSkill
 from skills.github_skill import GitHubSkill
 from skills.paper_skill import PaperSkill
 from skills.chat_skill import ChatSkill
-from skills.stock_skill import StockSkill
 
 
 # ============ 配置 ============
@@ -30,22 +28,18 @@ FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET")
 KIMI_API_KEY = os.environ.get("KIMI_API_KEY")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 
-print(f"🚀 飞书 AI 助手 v2.0 启动")
+print(f"🚀 飞书 AI 助手 v2.0 (调试模式) 启动")
 print(f"   APP_ID: {FEISHU_APP_ID[:20] if FEISHU_APP_ID else 'Not Set'}...")
 
 
-# ============ 初始化组件 ============
 def init_components():
-    """初始化所有组件（同步版本）"""
-    # 1. 初始化意图识别器
+    """初始化所有组件"""
     intent_recognizer = IntentRecognizer(api_key=KIMI_API_KEY)
     
-    # 2. 注册所有技能
     registry.register(MarketSkill())
     registry.register(GitHubSkill(config={"github_token": GITHUB_TOKEN}))
     registry.register(PaperSkill())
     registry.register(ChatSkill(config={"llm_api_key": KIMI_API_KEY}))
-    registry.register(StockSkill())
     
     print(f"\n✅ 已注册 {len(registry.list_skills())} 个技能:")
     for name in registry.list_skills():
@@ -54,7 +48,6 @@ def init_components():
     return intent_recognizer
 
 
-# ============ 消息处理 ============
 class MessageProcessor:
     """消息处理器"""
     
@@ -69,40 +62,48 @@ class MessageProcessor:
         
         # 去重检查
         if message_id in self.processed_msgs:
+            print(f"⚠️ 消息已处理，跳过: {message_id[:20]}")
             return
         self.processed_msgs.add(message_id)
         
-        # 清理旧消息ID
         if len(self.processed_msgs) > 1000:
             self.processed_msgs.clear()
         
-        # 获取或创建用户会话
         if user_id not in self.user_sessions:
             self.user_sessions[user_id] = {"history": []}
         session = self.user_sessions[user_id]
         
-        print(f"📨 [{datetime.now().strftime('%H:%M:%S')}] 用户: {text[:50]}")
+        print(f"\n{'='*50}")
+        print(f"📨 [{datetime.now().strftime('%H:%M:%S')}] 收到消息")
+        print(f"   用户ID: {user_id[:20]}...")
+        print(f"   内容: {text[:100]}")
+        print(f"{'='*50}")
         
         try:
-            # 更新历史
             session["history"].append({
                 "role": "user",
                 "content": text,
                 "time": datetime.now().isoformat()
             })
-            session["history"] = session["history"][-10:]  # 保留最近10条
+            session["history"] = session["history"][-10:]
             
-            # 判断是否为快捷命令
             if text.startswith("/"):
+                print("📝 识别为快捷命令")
                 result = await self._handle_command(text, user_id)
             else:
-                # 使用大模型识别意图
+                print("🧠 使用大模型识别意图...")
                 result = await self._handle_natural_language(text, session)
             
-            # 发送回复
+            print(f"\n📤 准备发送回复:")
+            print(f"   成功: {result.success}")
+            print(f"   消息长度: {len(result.message)}")
+            print(f"   是否有卡片: {result.card_content is not None}")
+            
+            if result.card_content:
+                print(f"   卡片内容预览: {json.dumps(result.card_content, ensure_ascii=False)[:200]}...")
+            
             await self._send_reply(user_id, result)
             
-            # 更新历史
             session["history"].append({
                 "role": "assistant",
                 "content": result.message[:100] if hasattr(result, 'message') else str(result)[:100],
@@ -111,6 +112,8 @@ class MessageProcessor:
             
         except Exception as e:
             print(f"❌ 处理失败: {e}")
+            import traceback
+            traceback.print_exc()
             await send_text(user_id, f"❌ 处理失败: {str(e)}")
     
     async def _handle_command(self, text: str, user_id: str) -> SkillResult:
@@ -119,7 +122,6 @@ class MessageProcessor:
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
         
-        # 命令映射到技能
         command_map = {
             "/market": ("query_market", {"market": args.upper() if args else "US"}),
             "/m": ("query_market", {"market": args.upper() if args else "US"}),
@@ -135,8 +137,11 @@ class MessageProcessor:
         
         if cmd in command_map:
             skill_name, params = command_map[cmd]
+            print(f"   执行技能: {skill_name}, 参数: {params}")
             skill = registry.get(skill_name)
-            return await skill.execute(**params)
+            result = await skill.execute(**params)
+            print(f"   执行结果: success={result.success}")
+            return result
         else:
             return SkillResult(
                 success=False,
@@ -146,44 +151,52 @@ class MessageProcessor:
     async def _handle_natural_language(self, text: str, session: Dict) -> SkillResult:
         """处理自然语言"""
         
-        # 使用大模型识别意图
+        print("\n🤖 调用大模型识别意图...")
         plan = await self.intent_recognizer.recognize(
             user_input=text,
             skills_schema=registry.get_all_schemas(),
             context=session
         )
         
-        print(f"🧠 意图识别: {plan.get('skill')} (置信度: {plan.get('confidence')})")
+        print(f"🎯 意图识别结果:")
+        print(f"   技能: {plan.get('skill')}")
+        print(f"   参数: {plan.get('parameters')}")
+        print(f"   置信度: {plan.get('confidence')}")
         print(f"   推理: {plan.get('reasoning', 'N/A')}")
         
-        # 获取技能并执行
         skill_name = plan.get("skill", "chat")
         parameters = plan.get("parameters", {})
         
         try:
             skill = registry.get(skill_name)
+            print(f"\n⚡ 执行技能: {skill_name}")
             result = await skill.execute(**parameters)
+            print(f"✅ 技能执行完成: success={result.success}")
             return result
         except Exception as e:
             print(f"❌ 技能执行失败: {e}")
-            # 失败时使用对话技能
+            import traceback
+            traceback.print_exc()
             chat_skill = registry.get("chat")
             return await chat_skill.execute(message=text)
     
     async def _send_reply(self, user_id: str, result: SkillResult):
         """发送回复"""
+        print(f"\n📤 发送回复:")
         if result.card_content:
-            # 发送卡片消息
+            print("   类型: 卡片消息")
+            print(f"   卡片JSON: {json.dumps(result.card_content, ensure_ascii=False)}")
             await send_card(user_id, result.card_content)
         else:
-            # 发送文本消息
+            print("   类型: 文本消息")
+            print(f"   内容: {result.message[:100]}...")
             await send_text(user_id, result.message)
 
 
-# ============ 飞书 API ============
 async def send_text(user_id: str, text: str):
     """发送文本消息"""
     try:
+        print(f"   [send_text] 开始发送...")
         client = lark.Client.builder() \
             .app_id(FEISHU_APP_ID) \
             .app_secret(FEISHU_APP_SECRET) \
@@ -199,37 +212,46 @@ async def send_text(user_id: str, text: str):
             .build()
         
         response = client.im.v1.message.create(request)
-        if not response.success():
-            print(f"❌ 发送失败: {response.msg}")
+        if response.success():
+            print(f"   [send_text] ✅ 发送成功")
+        else:
+            print(f"   [send_text] ❌ 发送失败: {response.code} - {response.msg}")
     except Exception as e:
-        print(f"❌ 发送异常: {e}")
+        print(f"   [send_text] ❌ 异常: {e}")
 
 
 async def send_card(user_id: str, card_content: Dict):
     """发送卡片消息"""
     try:
+        print(f"   [send_card] 开始发送...")
         client = lark.Client.builder() \
             .app_id(FEISHU_APP_ID) \
             .app_secret(FEISHU_APP_SECRET) \
             .build()
+        
+        content = json.dumps(card_content)
+        print(f"   [send_card] 内容长度: {len(content)}")
         
         request = CreateMessageRequest.builder() \
             .receive_id_type("open_id") \
             .request_body(CreateMessageRequestBody.builder()
                 .receive_id(user_id)
                 .msg_type("interactive")
-                .content(json.dumps(card_content))
+                .content(content)
                 .build()) \
             .build()
         
         response = client.im.v1.message.create(request)
-        if not response.success():
-            print(f"❌ 发送卡片失败: {response.msg}")
+        if response.success():
+            print(f"   [send_card] ✅ 发送成功")
+        else:
+            print(f"   [send_card] ❌ 发送失败: {response.code} - {response.msg}")
     except Exception as e:
-        print(f"❌ 发送卡片异常: {e}")
+        print(f"   [send_card] ❌ 异常: {e}")
+        import traceback
+        traceback.print_exc()
 
 
-# ============ 消息回调 ============
 def create_message_handler(processor: MessageProcessor):
     """创建消息处理器"""
     def on_message(data):
@@ -241,7 +263,6 @@ def create_message_handler(processor: MessageProcessor):
             message_id = message.message_id
             msg_type = message.message_type
             
-            # 解析文本
             text = ""
             try:
                 content = json.loads(message.content)
@@ -250,7 +271,6 @@ def create_message_handler(processor: MessageProcessor):
                 text = ""
             
             if text:
-                # 创建新任务处理（不阻塞回调）
                 asyncio.create_task(processor.process(user_id, message_id, text, msg_type))
         
         except Exception as e:
@@ -259,24 +279,18 @@ def create_message_handler(processor: MessageProcessor):
     return on_message
 
 
-# ============ 主程序 ============
 def main():
     """主程序"""
-    # 初始化组件（同步）
     intent_recognizer = init_components()
     
-    # 创建消息处理器
     processor = MessageProcessor(intent_recognizer)
     
-    # 创建消息回调
     on_message = create_message_handler(processor)
     
-    # 创建事件处理器
     event_handler = lark.EventDispatcherHandler.builder("", "") \
         .register_p2_im_message_receive_v1(on_message) \
         .build()
     
-    # 创建 WebSocket 客户端
     ws_client = lark.ws.Client(
         FEISHU_APP_ID,
         FEISHU_APP_SECRET,
@@ -284,13 +298,13 @@ def main():
         log_level=lark.LogLevel.INFO
     )
     
-    print("\n🎯 连接飞书中...")
-    print("   支持自然语言理解和 Skills 系统\n")
+    print("\n" + "="*50)
+    print("🎯 调试模式已启动")
+    print("   所有消息和意图识别将显示详细日志")
+    print("="*50 + "\n")
     
-    # 启动（阻塞）
     ws_client.start()
 
 
 if __name__ == "__main__":
-    # 直接运行（不使用 asyncio.run）
     main()
