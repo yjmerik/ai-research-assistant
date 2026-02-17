@@ -34,8 +34,8 @@ print(f"   APP_ID: {FEISHU_APP_ID[:20] if FEISHU_APP_ID else 'Not Set'}...")
 
 
 # ============ 初始化组件 ============
-async def init_components():
-    """初始化所有组件"""
+def init_components():
+    """初始化所有组件（同步版本）"""
     # 1. 初始化意图识别器
     intent_recognizer = IntentRecognizer(api_key=KIMI_API_KEY)
     
@@ -248,7 +248,7 @@ def create_message_handler(processor: MessageProcessor):
                 text = ""
             
             if text:
-                # 异步处理
+                # 创建新任务处理（不阻塞回调）
                 asyncio.create_task(processor.process(user_id, message_id, text, msg_type))
         
         except Exception as e:
@@ -258,10 +258,10 @@ def create_message_handler(processor: MessageProcessor):
 
 
 # ============ 主程序 ============
-async def main():
+def main():
     """主程序"""
-    # 初始化组件
-    intent_recognizer = await init_components()
+    # 初始化组件（同步）
+    intent_recognizer = init_components()
     
     # 创建消息处理器
     processor = MessageProcessor(intent_recognizer)
@@ -285,10 +285,10 @@ async def main():
     print("\n🎯 连接飞书中...")
     print("   支持自然语言理解和 Skills 系统\n")
     
-    # 启动
+    # 启动（阻塞）
     ws_client.start()
 
 
 if __name__ == "__main__":
-    # 运行主程序
-    asyncio.run(main())
+    # 直接运行（不使用 asyncio.run）
+    main()
