@@ -1,0 +1,126 @@
+{
+  "session_id": "2026-02-17-feishu-assistant",
+  "timestamp": "2026-02-17T21:05:00+08:00",
+  "summary": "飞书 AI 助手 v2.0 开发 - 新增个股分析技能",
+  "files_modified": [
+    {
+      "path": "feishu-assistant/core/intent_recognizer.py",
+      "description": "意图识别器，支持大模型参数标准化",
+      "status": "modified",
+      "key_features": [
+        "大模型意图识别",
+        "参数标准化（中文→代码）",
+        "置信度评估"
+      ]
+    },
+    {
+      "path": "feishu-assistant/skills/base_skill.py",
+      "description": "技能基类，定义统一接口",
+      "status": "created",
+      "key_features": [
+        "抽象基类",
+        "SkillResult 数据类",
+        "JSON Schema 生成"
+      ]
+    },
+    {
+      "path": "feishu-assistant/skills/skill_registry.py",
+      "description": "技能注册表，单例模式管理技能",
+      "status": "created",
+      "key_features": [
+        "单例模式",
+        "技能注册/获取",
+        "Schema 聚合"
+      ]
+    },
+    {
+      "path": "feishu-assistant/skills/market_skill.py",
+      "description": "市场指数查询技能",
+      "status": "modified",
+      "key_features": [
+        "腾讯财经 API",
+        "支持美股/港股/A股",
+        "参数标准化",
+        "飞书卡片格式"
+      ]
+    },
+    {
+      "path": "feishu-assistant/skills/stock_skill.py",
+      "description": "个股分析技能（本次新增）",
+      "status": "created",
+      "key_features": [
+        "A股/港股/美股支持",
+        "100+ 股票名称映射",
+        "实时行情数据",
+        "涨跌幅分析",
+        "技术指标显示"
+      ]
+    },
+    {
+      "path": "feishu-assistant/skills/github_skill.py",
+      "description": "GitHub 趋势搜索",
+      "status": "created"
+    },
+    {
+      "path": "feishu-assistant/skills/paper_skill.py",
+      "description": "arXiv 论文搜索",
+      "status": "created"
+    },
+    {
+      "path": "feishu-assistant/skills/chat_skill.py",
+      "description": "通用对话技能",
+      "status": "created"
+    },
+    {
+      "path": "feishu-assistant/main_v2.py",
+      "description": "主程序入口",
+      "status": "modified",
+      "key_features": [
+        "WebSocket 长连接",
+        "消息分发处理",
+        "Skills 调用",
+        "异步处理"
+      ]
+    }
+  ],
+  "skills_registered": [
+    {
+      "name": "query_market",
+      "description": "查询金融市场行情",
+      "parameters": ["market"]
+    },
+    {
+      "name": "analyze_stock",
+      "description": "分析个股行情",
+      "parameters": ["symbol", "market"]
+    },
+    {
+      "name": "search_github",
+      "description": "搜索 GitHub 趋势项目",
+      "parameters": ["keywords"]
+    },
+    {
+      "name": "search_papers",
+      "description": "搜索 arXiv 论文",
+      "parameters": ["topic"]
+    },
+    {
+      "name": "chat",
+      "description": "通用对话",
+      "parameters": ["message"]
+    }
+  ],
+  "deployment": {
+    "server": "阿里云 ECS",
+    "ip": "101.37.82.254",
+    "path": "/opt/feishu-assistant",
+    "service": "feishu-assistant.service",
+    "status": "active"
+  },
+  "environment": {
+    "python": "3.11",
+    "framework": "FastAPI + Lark SDK",
+    "llm": "Moonshot (Kimi)",
+    "data_api": "腾讯财经"
+  }
+}
