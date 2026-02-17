@@ -3,6 +3,7 @@
 使用大模型理解用户意图并规划技能调用
 """
 import json
+import re
 from typing import Dict, List, Any, Optional
 from openai import AsyncOpenAI
 
@@ -51,13 +52,16 @@ class IntentRecognizer:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3,  # 较低的创造性，更确定性的输出
+                temperature=0.3,
                 response_format={"type": "json_object"}
             )
             
             # 解析结果
             result_text = response.choices[0].message.content
             result = json.loads(result_text)
+            
+            # 后处理：参数标准化
+            result = self._normalize_parameters(result)
             
             return self._validate_result(result, skills_schema)
             
@@ -81,6 +85,21 @@ class IntentRecognizer:
             desc = f"- {skill['name']}: {skill['description']}"
             if skill.get('examples'):
                 desc += f"\n  示例: {', '.join(skill['examples'][:2])}"
+            
+            # 添加参数说明和映射规则
+            if skill.get('parameters'):
+                params = skill['parameters'].get('properties', {})
+                desc += "\n  参数映射规则:"
+                for param_name, param_info in params.items():
+                    enum_vals = param_info.get('enum', [])
+                    mapping = param_info.get('mapping', {})
+                    if mapping:
+                        desc += f"\n    - {param_name}: "
+                        mapping_strs = []
+                        for standard_val, aliases in mapping.items():
+                            mapping_strs.append(f"{standard_val}({', '.join(aliases)})")
+                        desc += ", ".join(mapping_strs)
+            
             skills_desc.append(desc)
         
         skills_text = "\n".join(skills_desc)
@@ -96,7 +115,9 @@ class IntentRecognizer:
 1. 分析用户的输入，理解其真实意图
 2. 选择最合适的技能（skill 字段）
 3. 提取执行该技能所需的参数（parameters 字段）
-4. 如果用户的请求不明确或需要多个步骤，进行合理的规划
+4. **重要**: 将用户的自然语言参数转换为技能要求的标准参数格式
+   - 例如: "美股" → "US", "港股" → "HK", "A股/中国股市" → "CN"
+   - 例如: "AI项目" → "ai-agent", "机器学习" → "machine-learning"
 
 ## 输出格式
 
@@ -106,17 +127,17 @@ class IntentRecognizer:
     "intent": "意图描述",
     "skill": "选择的技能名称",
     "parameters": {{
-        "参数名": "参数值"
+        "参数名": "标准化后的参数值"
     }},
     "confidence": 0.95,
-    "reasoning": "为什么选择这个技能",
-    "follow_up": "可选，如果需要进一步确认或提供建议"
+    "reasoning": "为什么选择这个技能以及如何映射参数的"
 }}
 
 注意：
 - skill 必须是可用技能列表中的名称
-- parameters 必须匹配技能的参数定义
+- parameters 必须符合技能的参数定义（使用标准化的值，不是原始输入）
 - confidence 是置信度（0-1）
+- 参数值必须是技能接受的枚举值或格式
 """
     
     def _build_user_prompt(self, user_input: str, context: Dict[str, Any] = None) -> str:
@@ -125,15 +146,48 @@ class IntentRecognizer:
         
         if context and context.get("history"):
             prompt += "对话历史:\n"
-            for msg in context["history"][-3:]:  # 只保留最近3轮
+            for msg in context["history"][-3:]:
                 role = msg.get("role", "unknown")
                 content = msg.get("content", "")[:100]
                 prompt += f"{role}: {content}\n"
             prompt += "\n"
         
-        prompt += "请分析用户意图并输出 JSON 格式的执行计划。"
+        prompt += "请分析用户意图并输出 JSON 格式的执行计划。注意将自然语言参数转换为标准格式（如'美股'转为'US'）。"
         
         return prompt
+    
+    def _normalize_parameters(self, result: Dict) -> Dict:
+        """标准化参数值"""
+        parameters = result.get("parameters", {})
+        
+        # 市场参数标准化
+        if "market" in parameters:
+            market = str(parameters["market"]).upper()
+            # 映射表
+            market_mapping = {
+                "美股": "US", "美国": "US", "美": "US", "US": "US",
+                "港股": "HK", "香港": "HK", "港": "HK", "HK": "HK",
+                "A股": "CN", "中国股市": "CN", "上证": "CN", "深证": "CN", 
+                "CN": "CN", "中国": "CN", "中": "CN"
+            }
+            parameters["market"] = market_mapping.get(market, market)
+        
+        # GitHub 搜索关键词标准化
+        if "keywords" in parameters:
+            keywords = parameters["keywords"]
+            # 如果是中文，保持原样让技能处理
+            # 但可以做一些简单的映射
+            keyword_mapping = {
+                "人工智能": "ai",
+                "机器学习": "machine-learning",
+                "深度学习": "deep-learning",
+                "大模型": "llm large-language-model"
+            }
+            if keywords in keyword_mapping:
+                parameters["keywords"] = keyword_mapping[keywords]
+        
+        result["parameters"] = parameters
+        return result
     
     def _validate_result(self, result: Dict, skills_schema: List[Dict]) -> Dict:
         """验证并修正结果"""
