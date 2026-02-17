@@ -1,119 +1,76 @@
-# 会话上下文管理
+# 上下文管理
 
-本目录用于持久化存储开发会话的上下文信息，方便后续继续工作。
+本目录用于持久化存储开发会话的上下文信息，方便 Kimi CLI 继续工作。
 
-## 📁 目录结构
+## 快速开始
 
-```
-context/
-├── README.md                      # 本文件
-├── TEMPLATE.md                    # Session 模板
-├── update_context.sh              # 自动更新脚本
-├── session_summary_2026-02-17.md  # 项目总体摘要
-├── code_changes_2026-02-17.json   # 代码变更记录
-├── resume_session.sh              # 会话恢复脚本
-└── sessions/                      # 每日 Session 记录
-    ├── session_2026-02-17.md
-    └── ...
-```
-
-## 🚀 快速使用
-
-### 更新上下文
-
-每次完成重要工作后，运行：
-
-```bash
-./context/update_context.sh "描述本次工作内容"
-```
-
-例如：
-
-```bash
-./context/update_context.sh "新增个股分析技能，支持A股/港股/美股"
-```
-
-这将自动：
-1. 生成代码变更摘要
-2. 更新 Session 文件
-3. 提交到 GitHub
-
-### 恢复会话
-
-继续工作前，查看上下文：
-
-```bash
-# 查看最新 Session
-cat context/sessions/session_$(date +%Y-%m-%d).md
-
-# 查看项目摘要
-cat context/session_summary_2026-02-17.md
-
-# 运行恢复脚本
-source context/resume_session.sh
-```
-
-## 📝 上下文内容
-
-### 项目摘要 (session_summary_*.md)
-- 项目概览
-- 架构设计
-- 已完成功能
-- 技术决策
-- 部署信息
-
-### 每日 Session (sessions/session_YYYY-MM-DD.md)
-- 当日工作内容
-- 代码变更统计
-- 遇到的问题
-- 下次计划
-
-### 代码变更 (code_changes_*.json)
-- 文件变更记录
-- Skills 列表
-- 环境配置
-
-## 🔧 自动化工作流
-
-### 1. 开始新 Session
+### 继续工作前
 
 ```bash
 # 1. 拉取最新代码
 git pull origin main
 
-# 2. 查看上下文
+# 2. 查看项目信息
+cat AGENTS.md                              # 项目说明和架构
+cat context/session_summary_2026-02-17.md   # 完整项目摘要
+
+# 3. 查看今日 Session
 cat context/sessions/session_$(date +%Y-%m-%d).md
-
-# 3. 开始开发...
 ```
 
-### 2. 开发过程中
+### 完成工作后
 
 ```bash
-# 修改代码...
-
-# 提交代码
-git add -A
-git commit -m "feat: xxx"
-git push
+# 更新上下文（自动提交到 GitHub）
+./context/update_context.sh "描述本次工作内容"
 ```
 
-### 3. 结束 Session
+## 目录结构
 
-```bash
-# 更新上下文
-./context/update_context.sh "完成 xxx 功能"
+```
+context/
+├── README.md                      # 本文件
+├── AGENTS.md                      # Kimi CLI 项目说明 (上级目录)
+├── TEMPLATE.md                    # Session 模板
+├── update_context.sh              # 自动更新脚本
+├── resume_session.sh              # 会话恢复脚本
+├── session_summary_2026-02-17.md  # 项目总体摘要
+├── code_changes_2026-02-17.json   # 代码变更记录
+└── sessions/                      # 每日 Session 记录
+    └── session_YYYY-MM-DD.md
 ```
 
-## 💡 最佳实践
+## 关键文件说明
 
-1. **及时更新**: 每次完成重要功能后更新上下文
-2. **清晰描述**: 使用简洁明了的描述说明工作内容
-3. **定期回顾**: 开始新 Session 前回顾上次记录
-4. **保持同步**: 上下文与代码一起提交到 GitHub
+| 文件 | 用途 | 何时查看 |
+|------|------|----------|
+| `AGENTS.md` | 项目架构、技术栈、开发规范 | 每次开始工作时 |
+| `session_summary_*.md` | 完整项目摘要和历史 | 需要了解整体状态时 |
+| `sessions/session_*.md` | 当日工作记录 | 查看今日/上次进展 |
+| `code_changes_*.json` | 代码变更结构化记录 | 需要详细变更信息 |
 
-## 🔗 相关文件
+## 工作流
 
-- [项目 README](../README.md)
-- [部署文档](../DEPLOY.md)
-- [工作流文档](../WORKFLOW.md)
+```
+开始工作
+   ↓
+git pull origin main          # 拉取最新代码和上下文
+   ↓
+cat AGENTS.md                 # 回顾项目架构
+   ↓
+cat context/sessions/...      # 查看上次进展
+   ↓
+开发编码...
+   ↓
+git add -A && git commit      # 提交代码
+   ↓
+./context/update_context.sh   # 更新上下文
+   ↓
+结束工作
+```
+
+## 提示
+
+- `AGENTS.md` 位于项目根目录，包含完整的项目说明
+- 每次开始工作前阅读 `AGENTS.md` 和最新 Session 文件
+- 使用 `./context/update_context.sh` 保持上下文同步
