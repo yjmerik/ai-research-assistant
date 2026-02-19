@@ -13,7 +13,9 @@ import urllib.error
 from datetime import datetime, timedelta
 
 # 历史记录文件
-HISTORY_FILE = 'github_trends_history.json'
+import os
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+HISTORY_FILE = os.path.join(SCRIPT_DIR, 'github_trends_history.json')
 
 
 def load_history():
@@ -151,7 +153,7 @@ def get_trending_repositories(language=None, since='daily', count=50):
 def save_projects(projects, since='daily'):
     """保存项目到文件"""
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f"github_trends_{since}_{timestamp}.json"
+    filename = os.path.join(SCRIPT_DIR, f"github_trends_{since}_{timestamp}.json")
     
     data = {
         'date': datetime.now().isoformat(),
@@ -166,7 +168,7 @@ def save_projects(projects, since='daily'):
     print(f"💾 项目数据已保存: {filename}")
     
     # 同时保存为最新文件
-    with open('latest_github_trends.json', 'w', encoding='utf-8') as f:
+    with open(os.path.join(SCRIPT_DIR, 'latest_github_trends.json'), 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     
     return filename
@@ -215,12 +217,12 @@ def generate_markdown_report(projects, since='daily'):
     report = '\n'.join(lines)
     
     # 保存报告
-    filename = f"github_trends_report_{datetime.now().strftime('%Y%m%d')}.md"
+    filename = os.path.join(SCRIPT_DIR, f"github_trends_report_{datetime.now().strftime('%Y%m%d')}.md")
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(report)
     
     # 同时保存为最新文件
-    with open('latest_github_trends.md', 'w', encoding='utf-8') as f:
+    with open(os.path.join(SCRIPT_DIR, 'latest_github_trends.md'), 'w', encoding='utf-8') as f:
         f.write(report)
     
     print(f"💾 报告已保存: {filename}")

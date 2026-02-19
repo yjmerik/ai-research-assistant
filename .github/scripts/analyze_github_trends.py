@@ -133,18 +133,25 @@ GitHub地址: {url}
 
 def load_projects():
     """加载项目数据"""
+    import glob
+    
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    
     try:
-        with open('latest_github_trends.json', 'r', encoding='utf-8') as f:
+        latest_file = os.path.join(SCRIPT_DIR, 'latest_github_trends.json')
+        with open(latest_file, 'r', encoding='utf-8') as f:
             return json.load(f)
     except:
         pass
     
-    import glob
-    files = glob.glob('github_trends_*.json')
-    if files:
-        latest = max(files, key=os.path.getctime)
-        with open(latest, 'r', encoding='utf-8') as f:
-            return json.load(f)
+    try:
+        files = glob.glob(os.path.join(SCRIPT_DIR, 'github_trends_*.json'))
+        if files:
+            latest = max(files, key=os.path.getctime)
+            with open(latest, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except:
+        pass
     
     return None
 
@@ -201,14 +208,15 @@ def generate_analysis_report(results, since='daily'):
     report = '\n'.join(lines)
     
     # 保存报告
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
     timestamp = datetime.now().strftime('%Y%m%d')
-    filename = f"github_trends_analysis_{timestamp}.md"
+    filename = os.path.join(SCRIPT_DIR, f"github_trends_analysis_{timestamp}.md")
     
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(report)
     
     # 同时保存为最新文件
-    with open('latest_github_trends_analysis.md', 'w', encoding='utf-8') as f:
+    with open(os.path.join(SCRIPT_DIR, 'latest_github_trends_analysis.md'), 'w', encoding='utf-8') as f:
         f.write(report)
     
     print(f"💾 分析报告已保存: {filename}")

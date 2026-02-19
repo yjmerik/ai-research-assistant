@@ -1,0 +1,93 @@
+name: GitHub Trends Collection
+
+on:
+  schedule:
+    # 每天早上 9:00 UTC+8 (UTC 1:00)
+    - cron: '0 1 * * *'
+  
+  # 允许手动触发
+  workflow_dispatch:
+    inputs:
+      since:
+        description: '时间范围 (daily/weekly/monthly)'
+        required: true
+        default: 'daily'
+      count:
+        description: '项目数量'
+        required: true
+        default: '10'
+
+jobs:
+  collect-trends:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # 获取完整历史，用于提交回仓库
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+    
+    - name: Run GitHub Trends collection
+      env:
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        TRENDS_SINCE: ${{ github.event.inputs.since || 'daily' }}
+        TRENDS_COUNT: ${{ github.event.inputs.count || '10' }}
+      run: |
+        cd .github/scripts
+        python github_trends.py
+    
+    - name: Run AI Analysis
+      env:
+        KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+      run: |
+        cd .github/scripts
+        python analyze_github_trends.py
+    
+    - name: Commit history file
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # 检查是否有变更
+        if [ -f ".github/scripts/github_trends_history.json" ]; then
+          git add .github/scripts/github_trends_history.json
+        fi
+        
+        # 提交趋势报告
+        if [ -f ".github/scripts/latest_github_trends.md" ]; then
+          git add .github/scripts/latest_github_trends.md
+          git add .github/scripts/latest_github_trends.json
+        fi
+        
+        if [ -f ".github/scripts/latest_github_trends_analysis.md" ]; then
+          git add .github/scripts/latest_github_trends_analysis.md
+        fi
+        
+        # 如果有变更则提交
+        git diff --staged --quiet || git commit -m "Update GitHub Trends [$(date +'%Y-%m-%d')]"
+    
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: ${{ github.ref }}
+    
+    - name: Upload artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: github-trends
+        path: |
+          .github/scripts/github_trends_*.md
+          .github/scripts/github_trends_*.json
+          .github/scripts/github_trends_history.json
