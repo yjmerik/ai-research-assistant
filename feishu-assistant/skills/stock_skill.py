@@ -25,14 +25,19 @@ class StockSkill(BaseSkill):
     parameters = {
         "symbol": {
             "type": "string",
-            "description": "股票代码或名称，如茅台、腾讯、AAPL、600519",
+            "description": "股票代码或名称，如茅台、腾讯、AAPL、600519、微软、特斯拉",
             "required": True
         },
         "market": {
             "type": "string",
-            "description": "市场类型: CN(A股), HK(港股), US(美股)。可选，会自动识别",
+            "description": "市场类型，用于区分同一公司不同市场的股票",
             "enum": ["CN", "HK", "US", "AUTO"],
-            "default": "AUTO"
+            "default": "AUTO",
+            "mapping": {
+                "CN": ["A股", "中国股市", "上证", "深证", "沪市", "深市", "a股", "中国"],
+                "HK": ["港股", "香港股市", "港交所", "港股通", "香港"],
+                "US": ["美股", "美国股市", "纳斯达克", "纽交所", "美股市场", "美国"]
+            }
         }
     }
     

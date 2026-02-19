@@ -153,19 +153,24 @@ class MessageProcessor:
             context=session
         )
         
-        print(f"🧠 意图识别: {plan.get('skill')} (置信度: {plan.get('confidence')})")
-        print(f"   推理: {plan.get('reasoning', 'N/A')}")
-        
-        # 获取技能并执行
         skill_name = plan.get("skill", "chat")
         parameters = plan.get("parameters", {})
+        confidence = plan.get("confidence", 0)
+        reasoning = plan.get("reasoning", "N/A")
         
+        print(f"🧠 意图识别: {skill_name} (置信度: {confidence:.2f})")
+        print(f"   参数: {parameters}")
+        print(f"   推理: {reasoning}")
+        
+        # 获取技能并执行
         try:
             skill = registry.get(skill_name)
             result = await skill.execute(**parameters)
             return result
         except Exception as e:
             print(f"❌ 技能执行失败: {e}")
+            import traceback
+            traceback.print_exc()
             # 失败时使用对话技能
             chat_skill = registry.get("chat")
             return await chat_skill.execute(message=text)
