@@ -45,7 +45,7 @@ def init_components():
     registry.register(GitHubSkill(config={"github_token": GITHUB_TOKEN}))
     registry.register(PaperSkill())
     registry.register(ChatSkill(config={"llm_api_key": KIMI_API_KEY}))
-    registry.register(StockSkill())
+    registry.register(StockSkill(config={"kimi_api_key": KIMI_API_KEY}))
     
     print(f"\n✅ 已注册 {len(registry.list_skills())} 个技能:")
     for name in registry.list_skills():
