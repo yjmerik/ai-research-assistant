@@ -116,36 +116,108 @@ class MessageProcessor:
             await send_text(user_id, f"❌ 处理失败: {str(e)}")
     
     async def _handle_command(self, text: str, user_id: str) -> SkillResult:
-        """处理快捷命令"""
+        """处理快捷命令（支持首字母/前两个字母简写）"""
         parts = text.split(maxsplit=1)
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
         
-        # 命令映射到技能
-        command_map = {
-            "/market": ("query_market", {"market": args.upper() if args else "US"}),
-            "/m": ("query_market", {"market": args.upper() if args else "US"}),
-            "/github": ("search_github", {"keywords": args or "ai-agent"}),
-            "/gh": ("search_github", {"keywords": args or "ai-agent"}),
-            "/paper": ("search_papers", {"topic": args or "AI"}),
-            "/arxiv": ("search_papers", {"topic": args or "AI"}),
-            "/chat": ("chat", {"message": args or "你好"}),
-            "/help": ("chat", {"message": "帮助"}),
-            "/clear": ("chat", {"message": "清除"}),
-            "/status": ("chat", {"message": "状态"}),
-            "/portfolio": ("manage_portfolio", {"action": "query", "user_id": user_id}),
-            "/持仓": ("manage_portfolio", {"action": "query", "user_id": user_id}),
+        # 完整命令映射表
+        command_definitions = {
+            "/market": {
+                "skill": "query_market",
+                "params": {"market": args.upper() if args else "US"},
+                "shortcuts": ["m", "ma"]
+            },
+            "/github": {
+                "skill": "search_github", 
+                "params": {"keywords": args or "ai-agent"},
+                "shortcuts": ["g", "gh"]
+            },
+            "/paper": {
+                "skill": "search_papers",
+                "params": {"topic": args or "AI"},
+                "shortcuts": ["p", "pa"]
+            },
+            "/chat": {
+                "skill": "chat",
+                "params": {"message": args or "你好"},
+                "shortcuts": ["c", "ch"]
+            },
+            "/help": {
+                "skill": "chat",
+                "params": {"message": "帮助"},
+                "shortcuts": ["h", "he"]
+            },
+            "/clear": {
+                "skill": "chat",
+                "params": {"message": "清除"},
+                "shortcuts": ["cl"]
+            },
+            "/status": {
+                "skill": "chat",
+                "params": {"message": "状态"},
+                "shortcuts": ["s", "st"]
+            },
+            "/portfolio": {
+                "skill": "manage_portfolio",
+                "params": {"action": "query", "user_id": user_id},
+                "shortcuts": ["po", "pt"]
+            },
+            "/持仓": {
+                "skill": "manage_portfolio",
+                "params": {"action": "query", "user_id": user_id},
+                "shortcuts": []
+            },
         }
         
-        if cmd in command_map:
-            skill_name, params = command_map[cmd]
-            skill = registry.get(skill_name)
-            return await skill.execute(**params)
-        else:
-            return SkillResult(
-                success=False,
-                message=f"未知命令: {cmd}\n\n可用命令: /market, /github, /paper, /help"
-            )
+        # 首先尝试精确匹配
+        if cmd in command_definitions:
+            cmd_def = command_definitions[cmd]
+            skill = registry.get(cmd_def["skill"])
+            return await skill.execute(**cmd_def["params"])
+        
+        # 尝试模糊匹配（去除开头的 /）
+        cmd_input = cmd[1:] if cmd.startswith('/') else cmd
+        
+        if cmd_input:
+            matches = []
+            for full_cmd, definition in command_definitions.items():
+                # 检查是否匹配完整命令名（去掉/）
+                full_name = full_cmd[1:]  # 去掉 /
+                if full_name.startswith(cmd_input):
+                    matches.append((full_cmd, definition))
+                # 检查是否匹配 shortcuts
+                elif cmd_input in definition.get("shortcuts", []):
+                    matches.append((full_cmd, definition))
+            
+            if len(matches) == 1:
+                # 唯一匹配
+                full_cmd, cmd_def = matches[0]
+                skill = registry.get(cmd_def["skill"])
+                return await skill.execute(**cmd_def["params"])
+            elif len(matches) > 1:
+                # 多个匹配，提示用户
+                cmd_names = [m[0] for m in matches]
+                return SkillResult(
+                    success=False,
+                    message=f"⚠️ 命令 `{cmd}` 有多个匹配:\n" + 
+                            "\n".join([f"• {n}" for n in cmd_names]) +
+                            f"\n\n请输入完整命令"
+                )
+        
+        # 没有匹配
+        return SkillResult(
+            success=False,
+            message=f"❓ 未知命令: {cmd}\n\n" +
+                    "📋 可用命令:\n" +
+                    "• /m /ma → 市场查询\n" +
+                    "• /g /gh → GitHub趋势\n" +
+                    "• /p /pa → 论文搜索\n" +
+                    "• /po /pt → 持仓查询\n" +
+                    "• /h → 帮助\n" +
+                    "• /s /st → 状态\n" +
+                    "• /c /cl → 聊天/清除"
+        )
     
     async def _handle_natural_language(self, text: str, session: Dict) -> SkillResult:
         """处理自然语言"""
