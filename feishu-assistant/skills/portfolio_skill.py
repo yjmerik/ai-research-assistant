@@ -5,6 +5,8 @@
 import sqlite3
 import os
 import re
+import json
+import httpx
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from .base_skill import BaseSkill, SkillResult
@@ -71,6 +73,9 @@ class PortfolioSkill(BaseSkill):
             "PORTFOLIO_DB_PATH", 
             "/opt/feishu-assistant/data/portfolio.db"
         )
+        # LLM API 配置
+        self.kimi_api_key = config.get("kimi_api_key") if config else os.environ.get("KIMI_API_KEY")
+        self.kimi_api_base = "https://api.moonshot.cn/v1"
         # 确保目录存在
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         # 初始化数据库
@@ -463,5 +468,99 @@ class PortfolioSkill(BaseSkill):
                 'shares': shares,
                 'price': price
             }
+        
+        return None
+    
+    async def parse_with_llm(self, message: str) -> Optional[Dict[str, Any]]:
+        """
+        使用大模型解析交易消息
+        当正则解析失败时使用此方法
+        """
+        if not self.kimi_api_key:
+            return None
+        
+        prompt = f"""请从以下消息中解析股票交易信息。
+
+用户消息: "{message}"
+
+请提取以下字段（JSON格式）:
+- action: "buy" 或 "sell" (买入/卖出)
+- stock_name: 股票名称或代码（如：茅台、腾讯、AAPL、美团）
+- shares: 股数（整数）
+- price: 价格（数字）
+
+如果这不是交易消息，返回 null。
+
+只返回JSON，不要其他内容。示例:
+{{"action": "buy", "stock_name": "美团", "shares": 6300, "price": 98.71}}
+"""
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{self.kimi_api_base}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.kimi_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "moonshot-v1-8k",
+                        "messages": [
+                            {"role": "system", "content": "你是一个股票交易信息提取助手，擅长从自然语言中解析交易数据。"},
+                            {"role": "user", "content": prompt}
+                        ],
+                        "temperature": 0.1,
+                        "max_tokens": 200
+                    },
+                    timeout=10
+                )
+                
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"].strip()
+                    
+                    # 提取 JSON
+                    try:
+                        # 尝试直接解析
+                        result = json.loads(content)
+                    except json.JSONDecodeError:
+                        # 尝试从文本中提取 JSON
+                        import re
+                        json_match = re.search(r'\{[^}]+\}', content)
+                        if json_match:
+                            result = json.loads(json_match.group())
+                        else:
+                            return None
+                    
+                    # 验证结果
+                    if result and all(k in result for k in ['action', 'stock_name', 'shares', 'price']):
+                        return {
+                            'action': result['action'],
+                            'stock_name': str(result['stock_name']),
+                            'shares': int(result['shares']),
+                            'price': float(result['price'])
+                        }
+                        
+        except Exception as e:
+            print(f"LLM 解析交易消息失败: {e}")
+        
+        return None
+    
+    async def smart_parse_trade(self, message: str) -> Optional[Dict[str, Any]]:
+        """
+        智能解析交易消息
+        先尝试正则解析，失败则使用大模型
+        """
+        # 首先尝试正则解析（更快）
+        result = self.parse_trade_message(message)
+        if result:
+            return result
+        
+        # 如果看起来像交易消息但正则失败，尝试大模型
+        trade_keywords = ['买入', '卖出', 'buy', 'sell', '购买', '抛售']
+        if any(kw in message for kw in trade_keywords):
+            # 检查是否包含数字（可能是价格和股数）
+            if re.search(r'\d+', message):
+                return await self.parse_with_llm(message)
         
         return None
