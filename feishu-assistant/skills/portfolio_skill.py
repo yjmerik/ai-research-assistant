@@ -68,13 +68,14 @@ class PortfolioSkill(BaseSkill):
     
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
+        config = config or {}
         # 数据库文件路径
-        self.db_path = config.get("db_path") if config else os.environ.get(
+        self.db_path = config.get("db_path") or os.environ.get(
             "PORTFOLIO_DB_PATH", 
             "/opt/feishu-assistant/data/portfolio.db"
         )
         # LLM API 配置
-        self.kimi_api_key = config.get("kimi_api_key") if config else os.environ.get("KIMI_API_KEY")
+        self.kimi_api_key = config.get("kimi_api_key") or os.environ.get("KIMI_API_KEY")
         self.kimi_api_base = "https://api.moonshot.cn/v1"
         # 确保目录存在
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
