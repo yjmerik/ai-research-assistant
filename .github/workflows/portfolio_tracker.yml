@@ -1,0 +1,58 @@
+name: Portfolio Tracker
+
+on:
+  schedule:
+    # 交易时间每半小时运行
+    # 上午 9:30-11:30 (UTC 1:30-3:30)
+    - cron: '30,00 1-3 * * 1-5'
+    # 下午 13:00-15:00 (UTC 5:00-7:00)
+    - cron: '0,30 5-7 * * 1-5'
+  workflow_dispatch:  # 支持手动触发
+    inputs:
+      force_notify:
+        description: '强制发送通知（即使没有变化）'
+        required: false
+        default: 'false'
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install httpx lark-oapi
+    
+    - name: Download portfolio database
+      run: |
+        # 从服务器下载持仓数据（可选，或者使用 GitHub Actions 缓存）
+        mkdir -p /opt/feishu-assistant/data
+        # 这里可以使用 scp 或其他方式同步服务器数据
+        # 或者使用 GitHub Actions Artifacts 保存状态
+    
+    - name: Run portfolio tracker
+      env:
+        FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+        FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        FEISHU_USER_OPEN_ID: ${{ secrets.FEISHU_USER_OPEN_ID }}
+        KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+        FORCE_NOTIFY: ${{ github.event.inputs.force_notify }}
+      run: |
+        python .github/scripts/track_portfolio.py
+    
+    - name: Upload tracker state
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: portfolio-tracker-state
+        path: /opt/feishu-assistant/data/portfolio_tracker_state.json
+        retention-days: 7

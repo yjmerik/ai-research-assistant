@@ -23,6 +23,7 @@ from skills.paper_skill import PaperSkill
 from skills.chat_skill import ChatSkill
 from skills.stock_skill import StockSkill
 from skills.portfolio_skill import PortfolioSkill
+from skills.portfolio_tracker_skill import PortfolioTrackerSkill
 
 
 # ============ 配置 ============
@@ -48,6 +49,7 @@ def init_components():
     registry.register(ChatSkill(config={"llm_api_key": KIMI_API_KEY}))
     registry.register(StockSkill(config={"kimi_api_key": KIMI_API_KEY}))
     registry.register(PortfolioSkill(config={"kimi_api_key": KIMI_API_KEY}))
+    registry.register(PortfolioTrackerSkill(config={"kimi_api_key": KIMI_API_KEY}))
     
     print(f"\n✅ 已注册 {len(registry.list_skills())} 个技能:")
     for name in registry.list_skills():
@@ -166,6 +168,16 @@ class MessageProcessor:
             "/持仓": {
                 "skill": "manage_portfolio",
                 "params": {"action": "query", "user_id": user_id},
+                "shortcuts": []
+            },
+            "/track": {
+                "skill": "track_portfolio",
+                "params": {"action": "track", "user_id": user_id},
+                "shortcuts": ["tr", "tk"]
+            },
+            "/追踪": {
+                "skill": "track_portfolio",
+                "params": {"action": "track", "user_id": user_id},
                 "shortcuts": []
             },
         }
