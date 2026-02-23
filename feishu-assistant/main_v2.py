@@ -22,6 +22,7 @@ from skills.github_skill import GitHubSkill
 from skills.paper_skill import PaperSkill
 from skills.chat_skill import ChatSkill
 from skills.stock_skill import StockSkill
+from skills.portfolio_skill import PortfolioSkill
 
 
 # ============ 配置 ============
@@ -46,6 +47,7 @@ def init_components():
     registry.register(PaperSkill())
     registry.register(ChatSkill(config={"llm_api_key": KIMI_API_KEY}))
     registry.register(StockSkill(config={"kimi_api_key": KIMI_API_KEY}))
+    registry.register(PortfolioSkill())
     
     print(f"\n✅ 已注册 {len(registry.list_skills())} 个技能:")
     for name in registry.list_skills():
@@ -78,7 +80,7 @@ class MessageProcessor:
         
         # 获取或创建用户会话
         if user_id not in self.user_sessions:
-            self.user_sessions[user_id] = {"history": []}
+            self.user_sessions[user_id] = {"history": [], "user_id": user_id}
         session = self.user_sessions[user_id]
         
         print(f"📨 [{datetime.now().strftime('%H:%M:%S')}] 用户: {text[:50]}")
@@ -131,6 +133,8 @@ class MessageProcessor:
             "/help": ("chat", {"message": "帮助"}),
             "/clear": ("chat", {"message": "清除"}),
             "/status": ("chat", {"message": "状态"}),
+            "/portfolio": ("manage_portfolio", {"action": "query", "user_id": user_id}),
+            "/持仓": ("manage_portfolio", {"action": "query", "user_id": user_id}),
         }
         
         if cmd in command_map:
@@ -145,6 +149,24 @@ class MessageProcessor:
     
     async def _handle_natural_language(self, text: str, session: Dict) -> SkillResult:
         """处理自然语言"""
+        
+        # 先检查是否是持仓查询
+        if any(kw in text for kw in ["持仓", "我的股票", "持仓情况", "查看持仓"]):
+            skill = registry.get("manage_portfolio")
+            return await skill.execute(action="query", user_id=session.get("user_id", "default"))
+        
+        # 检查是否是交易记录消息（买入/卖出）
+        trade_info = self._parse_trade_message(text)
+        if trade_info:
+            skill = registry.get("manage_portfolio")
+            return await skill.execute(
+                action="record",
+                user_id=session.get("user_id", "default"),
+                stock_name=trade_info["stock_name"],
+                trade_action=trade_info["action"],
+                price=trade_info["price"],
+                shares=trade_info["shares"]
+            )
         
         # 使用大模型识别意图
         plan = await self.intent_recognizer.recognize(
@@ -174,6 +196,68 @@ class MessageProcessor:
             # 失败时使用对话技能
             chat_skill = registry.get("chat")
             return await chat_skill.execute(message=text)
+    
+    def _parse_trade_message(self, text: str) -> Optional[Dict[str, Any]]:
+        """
+        解析交易消息
+        支持格式：
+        - 买入茅台 100股 价格1500
+        - 卖出腾讯 50股 400元
+        - 买入 AAPL 10股 180
+        """
+        import re
+        
+        text = text.strip().lower()
+        
+        # 判断是买入还是卖出
+        action = None
+        if any(kw in text for kw in ['买入', 'buy', '购买', '买进']):
+            action = 'buy'
+        elif any(kw in text for kw in ['卖出', 'sell', '抛售', '卖出']):
+            action = 'sell'
+        
+        if not action:
+            return None
+        
+        # 提取股票名称
+        stock_name = None
+        # 尝试在买入/卖出关键词后面找
+        patterns = [
+            r'(?:买入|卖出|buy|sell)\s+([\u4e00-\u9fa5a-zA-Z]{1,10})',
+            r'(?:买入|卖出|buy|sell)\s+(\S+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                stock_name = match.group(1).strip()
+                break
+        
+        if not stock_name:
+            # 尝试找第一个可能的中文或英文股票名
+            match = re.search(r'([\u4e00-\u9fa5]{2,}|[a-zA-Z]{1,5})', text)
+            if match:
+                stock_name = match.group(1).strip()
+        
+        # 提取数字（股数和价格）
+        numbers = re.findall(r'(\d+(?:\.\d+)?)', text)
+        if len(numbers) < 2:
+            return None
+        
+        try:
+            shares = int(float(numbers[0]))
+            price = float(numbers[1])
+        except (ValueError, IndexError):
+            return None
+        
+        if stock_name and shares > 0 and price > 0:
+            return {
+                'action': action,
+                'stock_name': stock_name,
+                'shares': shares,
+                'price': price
+            }
+        
+        return None
     
     async def _send_reply(self, user_id: str, result: SkillResult):
         """发送回复"""

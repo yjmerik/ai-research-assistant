@@ -48,6 +48,7 @@ feishu-assistant/
 |----------|------|----------|
 | `query_market` | 市场指数查询 | `market`: US/HK/CN |
 | `analyze_stock` | 个股分析 | `stock_name_or_code`, `market` |
+| `manage_portfolio` | 持仓管理 | `action`, `stock_name`, `price`, `shares` |
 | `search_github` | GitHub趋势 | `query`, `language`, `since` |
 | `search_papers` | arXiv论文 | `query`, `max_results` |
 | `chat` | 通用对话 | `message` |
@@ -206,6 +207,14 @@ AAPL股价怎么样
 查询宁德时代
 ```
 
+### 持仓管理
+```
+买入茅台 100股 价格1500    # 记录买入交易
+卖出腾讯 50股 400元        # 记录卖出交易
+/portfolio                 # 查询持仓
+/持仓                       # 查询持仓（中文命令）
+```
+
 ### 其他
 ```
 /github ai-agent
@@ -224,6 +233,9 @@ AAPL股价怎么样
 - [ ] 飞书文档自动创建
 - [ ] 更多技术指标
 - [ ] 价格预警通知
+- [ ] 持仓盈亏实时计算（接入实时股价）
+- [ ] 交易历史查询
+- [ ] 多用户数据隔离优化
 
 ## 相关链接
 
@@ -233,5 +245,5 @@ AAPL股价怎么样
 
 ---
 
-**当前版本**: v2.1.0  
-**最后更新**: 2026-02-17
+**当前版本**: v2.2.0  
+**最后更新**: 2026-02-20
