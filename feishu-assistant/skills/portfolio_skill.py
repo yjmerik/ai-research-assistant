@@ -293,22 +293,60 @@ class PortfolioSkill(BaseSkill):
             )
     
     async def _get_current_prices(self, holdings: List[Dict]) -> Dict[str, float]:
-        """获取当前股价"""
+        """获取当前价格（支持股票和基金）"""
         prices = {}
         for holding in holdings:
             try:
-                market_prefix = {
-                    "A股": "sh" if holding['stock_code'].startswith('6') else "sz",
-                    "港股": "hk",
-                    "美股": "us"
-                }.get(holding['market'], "sh")
+                code = holding['stock_code']
+                market = holding.get('market', 'A股')
                 
-                tencent_code = f"{market_prefix}{holding['stock_code']}"
-                # 复用 StockSkill 获取价格
-                # 这里简化处理，不实际调用
+                # 判断市场前缀
+                if market == "港股":
+                    prefix = "hk"
+                elif market == "美股":
+                    prefix = "us"
+                elif market == "基金":
+                    # 基金：5位代码或特定6位代码
+                    if len(code) == 5:
+                        # 5位ETF代码
+                        if code.startswith(('51', '56', '58', '60', '50')):
+                            prefix = "sh"
+                        else:
+                            prefix = "sz"
+                    else:
+                        # 6位基金代码，根据开头判断
+                        if code.startswith(('15', '16')):
+                            prefix = "sz"
+                        else:
+                            prefix = "sh"
+                else:
+                    # A股
+                    prefix = "sh" if code.startswith('6') else "sz"
+                
+                tencent_code = f"{prefix}{code}"
+                
+                # 调用腾讯财经获取价格
+                import httpx
+                url = f"http://qt.gtimg.cn/q={tencent_code}"
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(url, timeout=10)
+                    resp.encoding = 'gbk'
+                    data = resp.text
+                
+                if '="' in data:
+                    parts = data.split('="')
+                    if len(parts) >= 2:
+                        values_str = parts[1].rstrip('"').rstrip(';')
+                        values = values_str.split('~')
+                        if len(values) >= 4 and values[3]:
+                            prices[code] = float(values[3])
+                            continue
+                
+                prices[code] = None
+            except Exception as e:
+                print(f"获取价格失败 {holding.get('stock_code')}: {e}")
                 prices[holding['stock_code']] = None
-            except:
-                prices[holding['stock_code']] = None
+        
         return prices
     
     def _format_portfolio_message(self, holdings: List[Dict], 
@@ -368,18 +406,31 @@ class PortfolioSkill(BaseSkill):
         return self.stock_skill._resolve_symbol(stock_name, "AUTO")
     
     def _get_market_from_code(self, tencent_code: str) -> str:
-        """从腾讯代码获取市场"""
-        if tencent_code.startswith('sh') or tencent_code.startswith('sz'):
-            return "A股"
-        elif tencent_code.startswith('hk'):
+        """从腾讯代码获取市场（支持股票和基金）"""
+        code = tencent_code[2:] if len(tencent_code) > 2 else ""
+        
+        if tencent_code.startswith('hk'):
             return "港股"
         elif tencent_code.startswith('us'):
             return "美股"
+        elif tencent_code.startswith(('sh', 'sz')):
+            # 判断是否为基金
+            if len(code) == 5:
+                return "基金"  # 5位ETF代码
+            elif code.startswith(('15', '16', '50', '51', '56', '58', '60')):
+                return "基金"  # LOF或特定ETF
+            else:
+                return "A股"
         return "未知"
     
     def _get_stock_real_name(self, tencent_code: str) -> Optional[str]:
-        """从映射表获取股票真实名称"""
+        """从映射表获取股票/基金真实名称"""
+        # 先查股票映射
         for name, code in self.stock_skill.STOCK_NAME_MAP.items():
+            if code == tencent_code:
+                return name
+        # 再查基金映射
+        for name, code in self.stock_skill.FUND_NAME_MAP.items():
             if code == tencent_code:
                 return name
         return None

@@ -1,6 +1,6 @@
 """
 持仓跟踪和智能交易提醒技能
-自动跟踪持仓股票，生成交易分析和建议
+自动跟踪持仓股票，生成交易分析和建议（含价值投资分析）
 """
 import sqlite3
 import os
@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from .base_skill import BaseSkill, SkillResult
 from .stock_skill import StockSkill
+from .value_investing_analyzer import ValueInvestingAnalyzer, ValuationHistory
 
 
 class PortfolioTrackerSkill(BaseSkill):
@@ -75,6 +76,13 @@ class PortfolioTrackerSkill(BaseSkill):
         # 股票代码解析器
         self.stock_skill = StockSkill(config)
         
+        # 价值投资分析器
+        self.value_analyzer = ValueInvestingAnalyzer(self.kimi_api_key)
+        
+        # 估值历史管理
+        db_dir = os.path.dirname(self.db_path)
+        self.valuation_history = ValuationHistory(os.path.join(db_dir, "valuation_history.db"))
+        
         # 确保目录存在
         os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
     
@@ -101,7 +109,7 @@ class PortfolioTrackerSkill(BaseSkill):
             )
     
     async def _track_portfolio(self, user_id: str) -> SkillResult:
-        """跟踪持仓并生成分析报告"""
+        """跟踪持仓并生成分析报告（含价值投资分析）"""
         # 1. 获取持仓数据
         holdings = await self._get_holdings(user_id)
         if not holdings:
@@ -128,19 +136,52 @@ class PortfolioTrackerSkill(BaseSkill):
         # 3. 判断是否有显著变化
         significant_changes = self._check_significant_changes(holdings)
         
-        # 4. 生成分析报告
+        # 4. 【新增】价值投资分析（仅限股票，不包括基金）
+        valuation_reports = []
+        for holding in holdings:
+            if holding.get('market') not in ['基金'] and holding.get('current_price'):
+                try:
+                    # 检查是否是首次分析
+                    last_valuation = self.valuation_history.get_last_valuation(holding['stock_code'])
+                    is_first = last_valuation is None
+                    
+                    # 执行价值投资分析
+                    valuation = await self.value_analyzer.analyze(
+                        stock_code=holding['stock_code'],
+                        stock_name=holding['stock_name'],
+                        current_price=holding['current_price'],
+                        market=holding.get('market', 'A股')
+                    )
+                    
+                    # 格式化报告
+                    report = self.value_analyzer.format_analysis_report(valuation, is_update=not is_first)
+                    valuation_reports.append(report)
+                    
+                    # 保存估值历史
+                    self.valuation_history.save_valuation(valuation, is_first)
+                    
+                    # 将估值结果添加到持仓数据中
+                    holding['intrinsic_value'] = valuation.intrinsic_value
+                    holding['margin_of_safety'] = valuation.margin_of_safety
+                    holding['valuation_recommendation'] = valuation.recommendation
+                    
+                except Exception as e:
+                    print(f"价值投资分析失败 {holding['stock_code']}: {e}")
+        
+        # 5. 生成AI综合分析（原有逻辑）
         analysis = await self._generate_analysis(holdings, significant_changes)
         
-        # 5. 保存当前状态
+        # 6. 保存当前状态
         self._save_state(user_id, holdings)
         
-        # 6. 格式化输出
-        message = self._format_tracker_message(holdings, analysis, significant_changes)
+        # 7. 格式化输出（包含价值投资分析）
+        message = self._format_tracker_message(holdings, analysis, significant_changes, valuation_reports)
         
         return SkillResult(success=True, message=message, data={
             "holdings": holdings,
             "analysis": analysis,
-            "has_changes": len(significant_changes) > 0
+            "has_changes": len(significant_changes) > 0,
+            "valuation_reports": valuation_reports
         })
     
     async def _get_holdings(self, user_id: str) -> List[Dict]:
@@ -179,15 +220,35 @@ class PortfolioTrackerSkill(BaseSkill):
             return []
     
     async def _get_current_price(self, holding: Dict) -> Optional[float]:
-        """获取股票当前价格"""
+        """获取股票/基金当前价格"""
         try:
-            market_prefix = {
-                "A股": "sh" if holding['stock_code'].startswith('6') else "sz",
-                "港股": "hk",
-                "美股": "us"
-            }.get(holding['market'], "sh")
+            code = holding['stock_code']
+            market = holding.get('market', 'A股')
             
-            tencent_code = f"{market_prefix}{holding['stock_code']}"
+            # 判断市场前缀
+            if market == "港股":
+                prefix = "hk"
+            elif market == "美股":
+                prefix = "us"
+            elif market == "基金":
+                # 基金：5位代码或特定6位代码
+                if len(code) == 5:
+                    # 5位ETF代码
+                    if code.startswith(('51', '56', '58', '60', '50')):
+                        prefix = "sh"
+                    else:
+                        prefix = "sz"
+                else:
+                    # 6位基金代码
+                    if code.startswith(('15', '16')):
+                        prefix = "sz"
+                    else:
+                        prefix = "sh"
+            else:
+                # A股
+                prefix = "sh" if code.startswith('6') else "sz"
+            
+            tencent_code = f"{prefix}{code}"
             
             # 使用腾讯财经 API
             url = f"http://qt.gtimg.cn/q={tencent_code}"
@@ -213,7 +274,7 @@ class PortfolioTrackerSkill(BaseSkill):
             return float(values[3]) if values[3] else None
             
         except Exception as e:
-            print(f"获取股价失败 {holding['stock_code']}: {e}")
+            print(f"获取价格失败 {holding.get('stock_code')}: {e}")
             return None
     
     def _check_significant_changes(self, holdings: List[Dict]) -> List[Dict]:
@@ -374,8 +435,8 @@ class PortfolioTrackerSkill(BaseSkill):
             return {"error": str(e)}
     
     def _format_tracker_message(self, holdings: List[Dict], analysis: Dict, 
-                                changes: List[Dict]) -> str:
-        """格式化跟踪报告"""
+                                changes: List[Dict], valuation_reports: List[str] = None) -> str:
+        """格式化跟踪报告（含价值投资分析）"""
         # 计算总计
         total_cost = sum(h['total_cost'] for h in holdings)
         total_value = sum(h.get('current_value', h['total_cost']) for h in holdings)
@@ -400,7 +461,7 @@ class PortfolioTrackerSkill(BaseSkill):
                 alert_emoji = "🚨" if change['type'] in ['profit_alert', 'loss_alert'] else "📊"
                 message += f"{alert_emoji} {change['stock_name']}: {change['message']}\n"
         
-        # 添加个股详情
+        # 添加个股详情（含估值信息）
         message += f"\n📊 持仓明细:\n"
         for i, h in enumerate(holdings, 1):
             pnl_emoji = "📈" if h.get('pnl_percent', 0) >= 0 else "📉"
@@ -410,10 +471,26 @@ class PortfolioTrackerSkill(BaseSkill):
                 message += f"   • 现价: ¥{h['current_price']:.2f}\n"
             if h.get('pnl_percent') is not None:
                 message += f"   {pnl_emoji} 盈亏: {h['pnl_percent']:+.2f}%\n"
+            # 添加价值投资建议
+            if h.get('valuation_recommendation'):
+                mos = h.get('margin_of_safety', 0)
+                mos_emoji = "🟢" if mos > 0.3 else "🟡" if mos > 0 else "🔴"
+                message += f"   {mos_emoji} 估值: {h['valuation_recommendation']}"
+                if mos > 0:
+                    message += f" (安全边际: {mos:.1%})"
+                message += "\n"
         
-        # 添加 AI 分析建议
+        # 添加价值投资分析报告
+        if valuation_reports:
+            message += f"\n\n📚 价值投资分析报告\n"
+            message += "=" * 40 + "\n"
+            for report in valuation_reports:
+                message += f"\n{report}\n"
+                message += "-" * 40 + "\n"
+        
+        # 添加 AI 综合分析建议
         if 'recommendations' in analysis:
-            message += f"\n🤖 AI 交易建议:\n"
+            message += f"\n🤖 AI 综合交易建议:\n"
             for rec in analysis['recommendations']:
                 action_emoji = {
                     '买入': '🟢', '加仓': '🔼', '持有': '➡️',

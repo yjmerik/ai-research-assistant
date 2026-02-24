@@ -195,6 +195,98 @@ class StockSkill(BaseSkill):
         "CN": [r"^\d{6}$", r"^(sh|sz)\d{6}$"],
         "HK": [r"^0\d{4}$", r"^hk\d{5}$"],
         "US": [r"^[A-Z]{1,5}$", r"^us[A-Z]{1,5}$"],
+        "FUND": [r"^\d{5}$", r"^(sh|sz)\d{5}$"],  # 基金（ETF等5位代码）
+    }
+    
+    # 常见基金名称映射
+    FUND_NAME_MAP = {
+        # ETF基金
+        "上证50ETF": "sh510050", "510050": "sh510050",
+        "沪深300ETF": "sh510300", "510300": "sh510300",
+        "中证500ETF": "sh510500", "510500": "sh510500",
+        "创业板ETF": "sh159915", "159915": "sh159915",
+        "创业板": "sh159915",
+        "科创板50ETF": "sh588000", "588000": "sh588000",
+        "科创50": "sh588000",
+        "芯片ETF": "sh512760", "512760": "sh512760",
+        "半导体ETF": "sh512480", "512480": "sh512480",
+        "酒ETF": "sh512690", "512690": "sh512690",
+        "白酒基金": "sh512690",
+        "医药ETF": "sh512010", "512010": "sh512010",
+        "医疗ETF": "sh512170", "512170": "sh512170",
+        "新能源ETF": "sh516160", "516160": "sh516160",
+        "光伏ETF": "sh515790", "515790": "sh515790",
+        "新能源汽车ETF": "sh515030", "515030": "sh515030",
+        "新能源车ETF": "sh515030",
+        "军工ETF": "sh512660", "512660": "sh512660",
+        "券商ETF": "sh512000", "512000": "sh512000",
+        "银行ETF": "sh512800", "512800": "sh512800",
+        "房地产ETF": "sh512200", "512200": "sh512200",
+        "传媒ETF": "sh512980", "512980": "sh512980",
+        "游戏ETF": "sh159869", "159869": "sh159869",
+        "人工智能ETF": "sh159819", "159819": "sh159819",
+        "AI ETF": "sh159819",
+        "计算机ETF": "sh159998", "159998": "sh159998",
+        "软件ETF": "sh159852", "159852": "sh159852",
+        "通信ETF": "sh515880", "515880": "sh515880",
+        "5G ETF": "sh515050", "515050": "sh515050",
+        "云计算ETF": "sh516510", "516510": "sh516510",
+        "大数据ETF": "sh515400", "515400": "sh515400",
+        "物联网ETF": "sh159896", "159896": "sh159896",
+        "智能制造ETF": "sh516800", "516800": "sh516800",
+        "工业母机ETF": "sh159667", "159667": "sh159667",
+        "机器人ETF": "sh562500", "562500": "sh562500",
+        "钢铁ETF": "sh515210", "515210": "sh515210",
+        "煤炭ETF": "sh515220", "515220": "sh515220",
+        "有色ETF": "sh512400", "512400": "sh512400",
+        "化工ETF": "sh516020", "516020": "sh516020",
+        "建材ETF": "sh516750", "516750": "sh516750",
+        "家电ETF": "sh159996", "159996": "sh159996",
+        "农业ETF": "sh159825", "159825": "sh159825",
+        "养殖ETF": "sh159865", "159865": "sh159865",
+        "畜牧ETF": "sh159867", "159867": "sh159867",
+        "旅游ETF": "sh159766", "159766": "sh159766",
+        "物流ETF": "sh516910", "516910": "sh516910",
+        "航运ETF": "sh517070", "517070": "sh517070",
+        "航空ETF": "sh159666", "159666": "sh159666",
+        "黄金ETF": "sh518880", "518880": "sh518880",
+        "白银ETF": "sh159985", "159985": "sh159985",
+        "石油ETF": "sh513090", "513090": "sh513090",
+        "油气ETF": "sh159697", "159697": "sh159697",
+        "纳斯达克ETF": "sh513100", "513100": "sh513100",
+        "标普500ETF": "sh513500", "513500": "sh513500",
+        "中概互联ETF": "sh513050", "513050": "sh513050",
+        "恒生科技ETF": "sh513130", "513130": "sh513130",
+        "恒生医疗ETF": "sh513060", "513060": "sh513060",
+        "恒生消费ETF": "sh513970", "513970": "sh513970",
+        "日经ETF": "sh513520", "513520": "sh513520",
+        "德国ETF": "sh513030", "513030": "sh513030",
+        "法国ETF": "sh513080", "513080": "sh513080",
+        "教育ETF": "sh513360", "513360": "sh513360",
+        "电力ETF": "sh159611", "159611": "sh159611",
+        "环保ETF": "sh159861", "159861": "sh159861",
+        "碳中和ETF": "sh159790", "159790": "sh159790",
+        "ESG ETF": "sh159649", "159649": "sh159649",
+        "红利ETF": "sh510880", "510880": "sh510880",
+        "股息ETF": "sh512590", "512590": "sh512590",
+        "价值ETF": "sh510030", "510030": "sh510030",
+        "成长ETF": "sh159906", "159906": "sh159906",
+        "质量ETF": "sh515910", "515910": "sh515910",
+        "低波动ETF": "sh159552", "159552": "sh159552",
+        
+        # LOF基金（部分示例）
+        "兴全合宜": "sz163417", "163417": "sz163417",
+        "兴全合润": "sz163406", "163406": "sz163406",
+        "睿远成长": "sh501006", "501006": "sh501006",
+        "东方红": "sh501052", "501052": "sh501052",
+        "中欧时代": "sz166006", "166006": "sz166006",
+        
+        # 联接基金（通过ETF代码+后缀或直接代码）
+        "沪深300联接": "sh510300",  # 映射到ETF
+        "中证500联接": "sh510500",
+        "创业板联接": "sh159915",
+        "科创50联接": "sh588000",
+        "纳斯达克联接": "sh513100",
     }
     
     async def execute(self, symbol: str, market: str = "AUTO", **kwargs) -> SkillResult:
@@ -263,29 +355,53 @@ class StockSkill(BaseSkill):
             )
     
     def _resolve_symbol(self, symbol: str, market: str) -> Optional[str]:
-        """解析股票代码"""
+        """解析股票/基金代码"""
         symbol_clean = symbol.strip()
         
-        # 1. 直接匹配名称映射
+        # 1. 直接匹配名称映射（股票）
         if symbol_clean in self.STOCK_NAME_MAP:
             return self.STOCK_NAME_MAP[symbol_clean]
         
-        # 2. 尝试匹配名称（忽略大小写）
+        # 2. 直接匹配基金名称映射
+        if symbol_clean in self.FUND_NAME_MAP:
+            return self.FUND_NAME_MAP[symbol_clean]
+        
+        # 3. 尝试匹配名称（忽略大小写）- 股票
         symbol_lower = symbol_clean.lower()
         for name, code in self.STOCK_NAME_MAP.items():
             if symbol_lower == name.lower() or symbol_lower in name.lower():
                 return code
         
-        # 3. 根据模式识别代码格式
+        # 4. 尝试匹配名称（忽略大小写）- 基金
+        for name, code in self.FUND_NAME_MAP.items():
+            if symbol_lower == name.lower() or symbol_lower in name.lower():
+                return code
+        
+        # 5. 根据模式识别代码格式
+        # 6位数字 - 股票或LOF基金
         if re.match(r'^\d{6}$', symbol_clean):
             if symbol_clean.startswith('6'):
                 return f"sh{symbol_clean}"
             else:
                 return f"sz{symbol_clean}"
         
+        # 5位数字 - ETF基金
+        if re.match(r'^\d{5}$', symbol_clean):
+            # 上海ETF: 51x, 56x, 58x, 60x
+            # 深圳ETF: 15x, 16x
+            if symbol_clean.startswith(('51', '56', '58', '60', '50')):
+                return f"sh{symbol_clean}"
+            elif symbol_clean.startswith(('15', '16', '17', '18')):
+                return f"sz{symbol_clean}"
+            else:
+                # 默认上海
+                return f"sh{symbol_clean}"
+        
+        # 已带前缀的代码
         if re.match(r'^(sh|sz|hk|us)[A-Z0-9]+$', symbol_clean.lower()):
             return symbol_clean.lower()
         
+        # 美股代码
         if re.match(r'^[A-Z]{1,5}$', symbol_clean.upper()):
             return f"us{symbol_clean.upper()}"
         
@@ -332,12 +448,23 @@ class StockSkill(BaseSkill):
             market_cap = float(values[44]) if values[44] else 0
             
             market = "未知"
-            if tencent_code.startswith('sh') or tencent_code.startswith('sz'):
-                market = "A股"
-            elif tencent_code.startswith('hk'):
+            code_num = tencent_code[2:] if len(tencent_code) > 2 else ""
+            
+            if tencent_code.startswith('hk'):
                 market = "港股"
             elif tencent_code.startswith('us'):
                 market = "美股"
+            elif tencent_code.startswith(('sh', 'sz')):
+                # 判断是否为基金
+                # ETF: 5位代码
+                # LOF/ETF: 16xxxx, 50xxxx, 51xxxx, 56xxxx, 58xxxx, 60xxxx 等
+                # 特别处理：588xxx是科创50ETF，属于基金
+                if len(code_num) == 5:
+                    market = "基金"
+                elif code_num.startswith(('15', '16', '50', '51', '56', '58', '60', '588')):
+                    market = "基金"
+                else:
+                    market = "A股"
             
             return {
                 "name": name,

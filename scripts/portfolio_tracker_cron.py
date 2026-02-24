@@ -41,15 +41,32 @@ KIMI_API_KEY = os.environ.get("KIMI_API_KEY")
 
 
 async def get_current_price(stock_code: str, market: str) -> Optional[float]:
-    """获取股票当前价格"""
+    """获取股票/基金当前价格"""
     try:
-        market_prefix = {
-            "A股": "sh" if stock_code.startswith('6') else "sz",
-            "港股": "hk",
-            "美股": "us"
-        }.get(market, "sh")
+        # 判断市场前缀
+        if market == "港股":
+            prefix = "hk"
+        elif market == "美股":
+            prefix = "us"
+        elif market == "基金":
+            # 基金：5位代码或特定6位代码
+            if len(stock_code) == 5:
+                # 5位ETF代码
+                if stock_code.startswith(('51', '56', '58', '60', '50')):
+                    prefix = "sh"
+                else:
+                    prefix = "sz"
+            else:
+                # 6位基金代码
+                if stock_code.startswith(('15', '16')):
+                    prefix = "sz"
+                else:
+                    prefix = "sh"
+        else:
+            # A股
+            prefix = "sh" if stock_code.startswith('6') else "sz"
         
-        tencent_code = f"{market_prefix}{stock_code}"
+        tencent_code = f"{prefix}{stock_code}"
         url = f"http://qt.gtimg.cn/q={tencent_code}"
         
         async with httpx.AsyncClient() as client:
@@ -73,7 +90,7 @@ async def get_current_price(stock_code: str, market: str) -> Optional[float]:
         return float(values[3]) if values[3] else None
         
     except Exception as e:
-        print(f"获取股价失败 {stock_code}: {e}")
+        print(f"获取价格失败 {stock_code}: {e}")
         return None
 
 
