@@ -153,8 +153,20 @@ class PortfolioTrackerSkill(BaseSkill):
                         market=holding.get('market', 'A股')
                     )
                     
-                    # 格式化报告
-                    report = self.value_analyzer.format_analysis_report(valuation, is_update=not is_first)
+                    # 估值变化分析（如果不是首次）
+                    change_analysis = None
+                    if not is_first and last_valuation:
+                        change_analysis = await self.value_analyzer.analyze_change(valuation, last_valuation)
+                        print(f"  📊 {holding['stock_name']} 估值变化: 价格{change_analysis.price_change:+.2%}, "
+                              f"内在价值{change_analysis.intrinsic_change:+.2%}, "
+                              f"安全边际{change_analysis.mos_change:+.2%}")
+                    
+                    # 格式化报告（包含变化分析）
+                    report = self.value_analyzer.format_analysis_report(
+                        valuation, 
+                        change_analysis=change_analysis,
+                        is_update=not is_first
+                    )
                     valuation_reports.append(report)
                     
                     # 保存估值历史
@@ -164,9 +176,14 @@ class PortfolioTrackerSkill(BaseSkill):
                     holding['intrinsic_value'] = valuation.intrinsic_value
                     holding['margin_of_safety'] = valuation.margin_of_safety
                     holding['valuation_recommendation'] = valuation.recommendation
+                    if change_analysis:
+                        holding['mos_change'] = change_analysis.mos_change
+                        holding['price_change_since_last'] = change_analysis.price_change
                     
                 except Exception as e:
                     print(f"价值投资分析失败 {holding['stock_code']}: {e}")
+                    import traceback
+                    traceback.print_exc()
         
         # 5. 生成AI综合分析（原有逻辑）
         analysis = await self._generate_analysis(holdings, significant_changes)

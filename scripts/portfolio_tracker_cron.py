@@ -178,6 +178,69 @@ class ValueInvestingAnalyzer:
         intrinsic = pe_value * 0.7 + current_price * 0.3
         
         return max(intrinsic, current_price * 0.5)
+    
+    def analyze_change(self, current: Dict, previous: Dict) -> Dict[str, Any]:
+        """分析估值变化"""
+        prev_price = previous.get('current_price', current['current_price'])
+        prev_intrinsic = previous.get('intrinsic_value', current['intrinsic_value'])
+        prev_mos = previous.get('margin_of_safety', current['margin_of_safety'])
+        prev_date = previous.get('analysis_date', current['analysis_date'])
+        
+        # 计算变化
+        price_change = (current['current_price'] - prev_price) / prev_price if prev_price > 0 else 0
+        intrinsic_change = (current['intrinsic_value'] - prev_intrinsic) / prev_intrinsic if prev_intrinsic > 0 else 0
+        mos_change = current['margin_of_safety'] - prev_mos
+        
+        # 计算天数差
+        try:
+            prev_dt = datetime.strptime(prev_date, '%Y-%m-%d')
+            curr_dt = datetime.strptime(current['analysis_date'], '%Y-%m-%d')
+            days = (curr_dt - prev_dt).days
+        except:
+            days = 0
+        
+        # 判断驱动因素
+        price_driven = abs(price_change) > abs(intrinsic_change) * 2
+        fundamental_driven = abs(intrinsic_change) > 0.05
+        
+        # 生成结论
+        conclusion = []
+        if abs(price_change) > 0.1:
+            direction = "上涨" if price_change > 0 else "下跌"
+            conclusion.append(f"股价大幅{direction} {abs(price_change):.1%}")
+        
+        if fundamental_driven:
+            direction = "提升" if intrinsic_change > 0 else "下降"
+            conclusion.append(f"内在价值{direction} {abs(intrinsic_change):.1%}")
+        
+        if mos_change > 0.1:
+            conclusion.append(f"安全边际扩大 {mos_change:.1%}")
+        elif mos_change < -0.1:
+            conclusion.append(f"安全边际收窄 {abs(mos_change):.1%}")
+        
+        # 投资建议
+        recommendation = current['recommendation']
+        if mos_change > 0.15:
+            if '买入' in recommendation:
+                recommendation += "（安全边际改善，可加仓）"
+            else:
+                recommendation = "关注（安全边际改善）"
+        elif mos_change < -0.15:
+            if '卖出' in recommendation:
+                recommendation += "（安全边际收窄，考虑止损）"
+            else:
+                recommendation = "谨慎持有（安全边际收窄）"
+        
+        return {
+            'price_change': price_change,
+            'intrinsic_change': intrinsic_change,
+            'mos_change': mos_change,
+            'days': days,
+            'price_driven': price_driven,
+            'fundamental_driven': fundamental_driven,
+            'conclusion': '，'.join(conclusion) if conclusion else "估值基本稳定",
+            'recommendation': recommendation
+        }
 
 
 # ==================== 估值历史管理 ====================
@@ -407,8 +470,16 @@ async def main():
                 result = await analyzer.analyze(code, h['stock_name'], price, market)
                 history.save(result)
                 
-                # 格式化报告
+                # 估值变化分析
                 is_first = last is None
+                change_analysis = None
+                if not is_first:
+                    change_analysis = analyzer.analyze_change(result, last)
+                    print(f"    价格变化: {change_analysis['price_change']:+.2%}, "
+                          f"内在价值变化: {change_analysis['intrinsic_change']:+.2%}, "
+                          f"安全边际变化: {change_analysis['mos_change']:+.2%}")
+                
+                # 格式化报告
                 prefix = "【首次】" if is_first else "【更新】"
                 report = f"""{prefix}价值投资分析 - {h['stock_name']}
 • 当前价格: ¥{result['current_price']:.2f}
@@ -417,14 +488,39 @@ async def main():
 • 投资建议: {result['recommendation']}
 • ROE: {result['financial_data'].get('roe', 0):.1f}%
 • 增长率: {result['financial_data'].get('profit_growth', 0):.1f}%"""
+                
+                # 添加变化分析
+                if change_analysis:
+                    report += f"""
+
+📊 估值变化分析 (距上次 {change_analysis['days']} 天):
+• 价格变化: {change_analysis['price_change']:+.2%}
+• 内在价值变化: {change_analysis['intrinsic_change']:+.2%}
+• 安全边际变化: {change_analysis['mos_change']:+.2%}
+• 分析结论: {change_analysis['conclusion']}
+• 操作建议: {change_analysis['recommendation']}
+
+💡 变化原因:
+"""
+                    if change_analysis['price_driven']:
+                        report += "- 主要由市场情绪/价格波动驱动\n"
+                    if change_analysis['fundamental_driven']:
+                        report += "- 公司基本面发生变化\n"
+                    if not change_analysis['price_driven'] and not change_analysis['fundamental_driven']:
+                        report += "- 估值变化较小，保持观察\n"
+                
                 valuation_reports.append(report)
                 
                 h['intrinsic_value'] = result['intrinsic_value']
                 h['margin_of_safety'] = result['margin_of_safety']
                 h['valuation_rec'] = result['recommendation']
+                if change_analysis:
+                    h['mos_change'] = change_analysis['mos_change']
                 
             except Exception as e:
                 print(f"  ⚠️ 分析失败: {e}")
+                import traceback
+                traceback.print_exc()
     
     # 生成报告
     pnl = total_value - total_cost
@@ -454,6 +550,11 @@ async def main():
             message += f"   {mos_emoji} 估值: {h['valuation_rec']}"
             if mos > 0:
                 message += f" (安全边际 {mos:.1%})"
+            # 显示安全边际变化
+            if 'mos_change' in h:
+                change = h['mos_change']
+                change_emoji = "📈" if change > 0 else "📉"
+                message += f" {change_emoji} {change:+.1%}"
             message += "\n"
     
     # 添加价值投资报告
@@ -463,9 +564,18 @@ async def main():
     
     message += f"\n\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     
-    # 发送通知
-    if force or abs(pnl_pct) > 3:
-        print("📤 发送通知...")
+    # 检查是否需要发送通知
+    has_valuation_change = any('mos_change' in h and abs(h['mos_change']) > 0.1 for h in holdings)
+    
+    if force or abs(pnl_pct) > 3 or has_valuation_change:
+        reason = []
+        if force:
+            reason.append("强制模式")
+        if abs(pnl_pct) > 3:
+            reason.append(f"盈亏变化 {pnl_pct:+.2f}%")
+        if has_valuation_change:
+            reason.append("估值显著变化")
+        print(f"📤 发送通知 ({', '.join(reason)})...")
         success = await send_feishu_message(message)
         print("✅ 发送成功" if success else "❌ 发送失败")
     else:

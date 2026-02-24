@@ -4,6 +4,7 @@
 - 安全边际评估
 - 护城河分析
 - 财务健康度评分
+- 估值变化追踪分析
 """
 import httpx
 import json
@@ -44,6 +45,30 @@ class ValuationResult:
             return "观望"
         else:
             return "卖出"
+
+
+@dataclass
+class ValuationChangeAnalysis:
+    """估值变化分析结果"""
+    stock_code: str
+    stock_name: str
+    price_change: float  # 价格变化率
+    intrinsic_change: float  # 内在价值变化率
+    mos_change: float  # 安全边际变化
+    price_change_amount: float  # 价格变化金额
+    intrinsic_change_amount: float  # 内在价值变化金额
+    days_since_last: int  # 距离上次分析天数
+    
+    # 变化原因分析
+    price_driven: bool  # 是否主要由价格驱动
+    fundamental_driven: bool  # 是否主要由基本面驱动
+    
+    # 详细指标变化
+    metrics_changes: Dict[str, Any]
+    
+    # 分析结论
+    conclusion: str
+    recommendation: str
 
 
 class ValueInvestingAnalyzer:
@@ -98,6 +123,164 @@ class ValueInvestingAnalyzer:
             key_metrics=metrics,
             analysis_date=datetime.now().strftime('%Y-%m-%d')
         )
+    
+    async def analyze_change(self, current: ValuationResult, 
+                            previous: Dict[str, Any]) -> ValuationChangeAnalysis:
+        """
+        分析估值变化原因
+        
+        Args:
+            current: 当前估值结果
+            previous: 历史估值记录
+        """
+        prev_price = previous.get('current_price', current.current_price)
+        prev_intrinsic = previous.get('intrinsic_value', current.intrinsic_value)
+        prev_mos = previous.get('margin_of_safety', current.margin_of_safety)
+        prev_metrics = previous.get('key_metrics', {})
+        prev_date = previous.get('analysis_date', current.analysis_date)
+        
+        # 计算变化
+        price_change = (current.current_price - prev_price) / prev_price if prev_price > 0 else 0
+        intrinsic_change = (current.intrinsic_value - prev_intrinsic) / prev_intrinsic if prev_intrinsic > 0 else 0
+        mos_change = current.margin_of_safety - prev_mos
+        
+        price_change_amount = current.current_price - prev_price
+        intrinsic_change_amount = current.intrinsic_value - prev_intrinsic
+        
+        # 计算天数差
+        try:
+            prev_dt = datetime.strptime(prev_date, '%Y-%m-%d')
+            curr_dt = datetime.strptime(current.analysis_date, '%Y-%m-%d')
+            days_since_last = (curr_dt - prev_dt).days
+        except:
+            days_since_last = 0
+        
+        # 判断驱动因素
+        price_driven = abs(price_change) > abs(intrinsic_change) * 2
+        fundamental_driven = abs(intrinsic_change) > 0.05  # 内在价值变化超过5%
+        
+        # 指标变化分析
+        metrics_changes = {}
+        key_metrics_to_compare = ['roe', 'revenue_growth', 'profit_growth', 'pe', 'pb', 'debt_ratio']
+        
+        for metric in key_metrics_to_compare:
+            curr_val = current.key_metrics.get(metric, 0)
+            prev_val = prev_metrics.get(metric, 0)
+            if prev_val != 0:
+                change_pct = (curr_val - prev_val) / abs(prev_val) * 100
+            else:
+                change_pct = 0
+            metrics_changes[metric] = {
+                'current': curr_val,
+                'previous': prev_val,
+                'change': curr_val - prev_val,
+                'change_pct': change_pct
+            }
+        
+        # 生成分析结论
+        conclusion = self._generate_change_conclusion(
+            current, price_change, intrinsic_change, mos_change,
+            price_driven, fundamental_driven, metrics_changes
+        )
+        
+        # 生成投资建议
+        recommendation = self._generate_change_recommendation(
+            current, mos_change, price_driven, fundamental_driven
+        )
+        
+        return ValuationChangeAnalysis(
+            stock_code=current.stock_code,
+            stock_name=current.stock_name,
+            price_change=price_change,
+            intrinsic_change=intrinsic_change,
+            mos_change=mos_change,
+            price_change_amount=price_change_amount,
+            intrinsic_change_amount=intrinsic_change_amount,
+            days_since_last=days_since_last,
+            price_driven=price_driven,
+            fundamental_driven=fundamental_driven,
+            metrics_changes=metrics_changes,
+            conclusion=conclusion,
+            recommendation=recommendation
+        )
+    
+    def _generate_change_conclusion(self, current: ValuationResult,
+                                    price_change: float, intrinsic_change: float,
+                                    mos_change: float, price_driven: bool,
+                                    fundamental_driven: bool,
+                                    metrics_changes: Dict) -> str:
+        """生成估值变化结论"""
+        conclusions = []
+        
+        # 1. 价格变化分析
+        if abs(price_change) > 0.1:
+            direction = "上涨" if price_change > 0 else "下跌"
+            conclusions.append(f"股价大幅{direction} {abs(price_change):.1%}，")
+        
+        # 2. 内在价值变化分析
+        if fundamental_driven:
+            direction = "提升" if intrinsic_change > 0 else "下降"
+            conclusions.append(f"公司内在价值{direction} {abs(intrinsic_change):.1%}，")
+            
+            # 分析具体原因
+            roe_change = metrics_changes.get('roe', {}).get('change', 0)
+            growth_change = metrics_changes.get('profit_growth', {}).get('change', 0)
+            
+            if roe_change > 2:
+                conclusions.append("主要由于盈利能力（ROE）改善；")
+            elif roe_change < -2:
+                conclusions.append("主要由于盈利能力（ROE）下滑；")
+            
+            if growth_change > 5:
+                conclusions.append("业绩增长超预期；")
+            elif growth_change < -5:
+                conclusions.append("业绩增长放缓；")
+        
+        # 3. 安全边际变化
+        if mos_change > 0.1:
+            conclusions.append(f"安全边际扩大 {mos_change:.1%}，投资价值提升。")
+        elif mos_change < -0.1:
+            conclusions.append(f"安全边际收窄 {abs(mos_change):.1%}，需关注风险。")
+        else:
+            conclusions.append("安全边际基本稳定。")
+        
+        # 4. 驱动因素总结
+        if price_driven and not fundamental_driven:
+            conclusions.append("【价格驱动】主要由市场情绪推动，基本面未发生重大变化。")
+        elif fundamental_driven and not price_driven:
+            conclusions.append("【基本面驱动】公司内在价值发生变化，建议重新评估。")
+        elif price_driven and fundamental_driven:
+            conclusions.append("【双重驱动】价格和基本面同步变化，需综合判断。")
+        
+        return "".join(conclusions)
+    
+    def _generate_change_recommendation(self, current: ValuationResult,
+                                       mos_change: float, price_driven: bool,
+                                       fundamental_driven: bool) -> str:
+        """基于变化生成投资建议"""
+        # 基于当前状态的建议
+        base_rec = current.recommendation
+        
+        # 基于变化的调整
+        if mos_change > 0.15:
+            if base_rec in ["买入", "强烈买入"]:
+                return f"{base_rec}（安全边际显著改善，可加仓）"
+            else:
+                return f"关注（安全边际改善，等待更好时机）"
+        elif mos_change < -0.15:
+            if base_rec == "卖出":
+                return f"{base_rec}（安全边际大幅收窄，考虑止损）"
+            else:
+                return f"谨慎持有（安全边际收窄，密切关注）"
+        
+        # 价格与基本面背离的情况
+        if price_driven and not fundamental_driven:
+            if current.margin_of_safety < 0:
+                return "考虑减仓（价格高估但基本面未改善）"
+            elif current.margin_of_safety > 0.3:
+                return "持有（市场波动带来机会）"
+        
+        return base_rec
     
     async def _get_financial_data(self, stock_code: str, market: str) -> Dict[str, Any]:
         """获取财务数据"""
@@ -393,8 +576,10 @@ class ValueInvestingAnalyzer:
         else:
             return "低"
     
-    def format_analysis_report(self, result: ValuationResult, is_update: bool = False) -> str:
-        """格式化分析报告"""
+    def format_analysis_report(self, result: ValuationResult, 
+                               change_analysis: Optional[ValuationChangeAnalysis] = None,
+                               is_update: bool = False) -> str:
+        """格式化分析报告（支持估值变化分析）"""
         emoji = "📈" if result.is_undervalued else "📉"
         action = result.recommendation
         action_emoji = {
@@ -405,10 +590,10 @@ class ValueInvestingAnalyzer:
             "卖出": "🔴"
         }.get(action, "⚪")
         
-        report = f"""{emoji} {'【更新】' if is_update else '【首次】'}价值投资分析报告
+        prefix = "【更新】" if is_update else "【首次】"
+        
+        report = f"""{emoji} {prefix}价值投资分析 - {result.stock_name}
 ━━━━━━━━━━━━━━━━━━━━
-
-📊 {result.stock_name} ({result.stock_code})
 
 💰 估值分析:
 • 当前价格: ¥{result.current_price:.2f}
@@ -420,6 +605,10 @@ class ValueInvestingAnalyzer:
 {action_emoji} 投资建议: {action}
 """
         
+        # 添加估值变化分析（如果是更新）
+        if change_analysis:
+            report += self._format_change_analysis(change_analysis)
+        
         # 添加关键指标
         metrics = result.key_metrics
         report += f"""
@@ -430,6 +619,8 @@ class ValueInvestingAnalyzer:
 • PB: {metrics.get('pb', 0):.2f}
 • 股息率: {metrics.get('dividend_yield', 0):.2f}%
 • 负债率: {metrics.get('debt_ratio', 0):.1f}%
+• 营收增长: {metrics.get('revenue_growth', 0):.1f}%
+• 利润增长: {metrics.get('profit_growth', 0):.1f}%
 """
         
         # 添加分析说明
@@ -450,9 +641,107 @@ class ValueInvestingAnalyzer:
         else:
             report += "❌ 公司财务质量一般，需谨慎评估。\n"
         
+        # 添加巴菲特投资原则检查
+        report += self._format_buffett_checklist(result, metrics)
+        
         report += f"\n⏰ 分析时间: {result.analysis_date}"
         
         return report
+    
+    def _format_change_analysis(self, change: ValuationChangeAnalysis) -> str:
+        """格式化估值变化分析"""
+        price_emoji = "📈" if change.price_change > 0 else "📉"
+        intrinsic_emoji = "📈" if change.intrinsic_change > 0 else "📉"
+        mos_emoji = "📈" if change.mos_change > 0 else "📉"
+        
+        report = f"""
+📊 估值变化分析 (距离上次 {change.days_since_last} 天):
+
+【价格变化】
+{price_emoji} 股价: {change.price_change:+.2%} (¥{change.price_change_amount:+.2f})
+
+【内在价值变化】
+{intrinsic_emoji} 内在价值: {change.intrinsic_change:+.2%} (¥{change.intrinsic_change_amount:+.2f})
+
+【安全边际变化】
+{mos_emoji} 安全边际: {change.mos_change:+.2%}
+
+【驱动因素分析】
+"""
+        
+        # 添加详细指标变化
+        if change.metrics_changes:
+            report += "\n📈 关键指标变化:\n"
+            for metric, values in change.metrics_changes.items():
+                if abs(values['change_pct']) > 5:  # 只显示显著变化
+                    change_emoji = "📈" if values['change'] > 0 else "📉"
+                    metric_names = {
+                        'roe': 'ROE',
+                        'revenue_growth': '营收增长',
+                        'profit_growth': '利润增长',
+                        'pe': '市盈率',
+                        'pb': '市净率',
+                        'debt_ratio': '负债率'
+                    }
+                    name = metric_names.get(metric, metric)
+                    report += f"  {change_emoji} {name}: {values['previous']:.1f} → {values['current']:.1f} ({values['change']:+.1f}, {values['change_pct']:+.1f}%)\n"
+        
+        # 添加分析结论
+        report += f"""
+【分析结论】
+{change.conclusion}
+
+【操作建议】
+💡 {change.recommendation}
+"""
+        
+        return report
+    
+    def _format_buffett_checklist(self, result: ValuationResult, metrics: Dict) -> str:
+        """格式化巴菲特投资原则检查清单"""
+        checklist = []
+        
+        # 1. 安全边际
+        if result.margin_of_safety > 0.3:
+            checklist.append("✅ 安全边际充足（>30%）")
+        elif result.margin_of_safety > 0:
+            checklist.append("⚠️ 安全边际不足（<30%）")
+        else:
+            checklist.append("❌ 无安全边际（价格>内在价值）")
+        
+        # 2. ROE（净资产收益率）
+        if metrics.get('roe', 0) > 15:
+            checklist.append("✅ ROE优秀（>15%）")
+        elif metrics.get('roe', 0) > 10:
+            checklist.append("⚠️ ROE良好（10-15%）")
+        else:
+            checklist.append("❌ ROE一般（<10%）")
+        
+        # 3. 负债率
+        if metrics.get('debt_ratio', 100) < 40:
+            checklist.append("✅ 负债率低（<40%）")
+        elif metrics.get('debt_ratio', 100) < 60:
+            checklist.append("⚠️ 负债率适中（40-60%）")
+        else:
+            checklist.append("❌ 负债率较高（>60%）")
+        
+        # 4. 成长性
+        if metrics.get('profit_growth', 0) > 15:
+            checklist.append("✅ 成长性优秀（>15%）")
+        elif metrics.get('profit_growth', 0) > 8:
+            checklist.append("⚠️ 成长性良好（8-15%）")
+        else:
+            checklist.append("❌ 成长性一般（<8%）")
+        
+        # 5. 盈利能力
+        if metrics.get('quality_score', 0) >= 80:
+            checklist.append("✅ 综合质量优秀")
+        elif metrics.get('quality_score', 0) >= 60:
+            checklist.append("⚠️ 综合质量良好")
+        else:
+            checklist.append("❌ 综合质量一般")
+        
+        return "\n🎯 巴菲特投资原则检查:\n" + "\n".join(checklist) + "\n"
 
 
 # 存储估值历史的简单数据库操作
