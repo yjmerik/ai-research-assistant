@@ -170,6 +170,16 @@ class MessageProcessor:
                 "params": {"action": "query", "user_id": user_id},
                 "shortcuts": []
             },
+            "/reset": {
+                "skill": "manage_portfolio",
+                "params": {"action": "reset", "user_id": user_id, "confirm": False},
+                "shortcuts": ["r", "rs"]
+            },
+            "/reset confirm": {
+                "skill": "manage_portfolio",
+                "params": {"action": "reset", "user_id": user_id, "confirm": True},
+                "shortcuts": []
+            },
             "/track": {
                 "skill": "track_portfolio",
                 "params": {"action": "track", "user_id": user_id},
@@ -249,7 +259,8 @@ class MessageProcessor:
                 stock_name=trade_info["stock_name"],
                 trade_action=trade_info["action"],
                 price=trade_info["price"],
-                shares=trade_info["shares"]
+                shares=trade_info["shares"],
+                currency=trade_info.get("currency", "CNY")
             )
         
         # 使用大模型识别意图

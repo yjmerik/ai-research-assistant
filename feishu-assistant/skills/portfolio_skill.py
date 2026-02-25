@@ -98,6 +98,7 @@ class PortfolioSkill(BaseSkill):
                         market TEXT NOT NULL,
                         action TEXT NOT NULL CHECK(action IN ('buy', 'sell')),
                         price REAL NOT NULL,
+                        currency TEXT DEFAULT 'CNY',
                         shares INTEGER NOT NULL,
                         total_amount REAL NOT NULL,
                         trade_date TEXT NOT NULL,
@@ -122,19 +123,22 @@ class PortfolioSkill(BaseSkill):
     
     async def execute(self, action: str, user_id: str = "default", 
                       stock_name: str = None, trade_action: str = None,
-                      price: float = None, shares: int = None, **kwargs) -> SkillResult:
+                      price: float = None, shares: int = None,
+                      currency: str = "CNY", **kwargs) -> SkillResult:
         """执行持仓管理操作"""
         try:
             if action == "record":
                 return await self._record_transaction(
-                    user_id, stock_name, trade_action, price, shares
+                    user_id, stock_name, trade_action, price, shares, currency
                 )
             elif action == "query":
                 return await self._query_portfolio(user_id)
+            elif action == "reset":
+                return await self._reset_portfolio(user_id, kwargs.get('confirm', False))
             else:
                 return SkillResult(
                     success=False,
-                    message=f"❓ 未知操作: {action}\n\n支持的操作:\n• record - 记录交易\n• query - 查询持仓"
+                    message=f"❓ 未知操作: {action}\n\n支持的操作:\n• record - 记录交易\n• query - 查询持仓\n• reset - 重置/清零持仓"
                 )
         except Exception as e:
             print(f"PortfolioSkill error: {e}")
@@ -147,7 +151,7 @@ class PortfolioSkill(BaseSkill):
     
     async def _record_transaction(self, user_id: str, stock_name: str, 
                                    trade_action: str, price: float, 
-                                   shares: int) -> SkillResult:
+                                   shares: int, currency: str = "CNY") -> SkillResult:
         """记录交易"""
         # 参数验证
         if not stock_name:
@@ -192,14 +196,17 @@ class PortfolioSkill(BaseSkill):
         # 计算总金额
         total_amount = price * shares
         
+        # 币种符号
+        currency_symbol = {'CNY': '¥', 'USD': '$', 'HKD': 'HK$'}.get(currency, '¥')
+        
         # 保存到数据库
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
                     INSERT INTO transactions 
-                    (user_id, stock_name, stock_code, market, action, price, shares, total_amount, trade_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (user_id, stock_name, stock_code, market, action, price, currency, shares, total_amount, trade_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     user_id,
                     real_name,
@@ -207,6 +214,7 @@ class PortfolioSkill(BaseSkill):
                     market,
                     trade_action,
                     price,
+                    currency,
                     shares,
                     total_amount,
                     datetime.now().strftime('%Y-%m-%d')
@@ -220,9 +228,9 @@ class PortfolioSkill(BaseSkill):
                             f"📊 {real_name} ({stock_code})\n"
                             f"━━━━━━━━━━━━━━━━━━━━\n"
                             f"💼 交易类型: {trade_type}\n"
-                            f"💰 成交价: ¥{price:.2f}\n"
+                            f"💰 成交价: {currency_symbol}{price:.2f} ({currency})\n"
                             f"📈 股数: {shares}股\n"
-                            f"💵 总金额: ¥{total_amount:,.2f}\n"
+                            f"💵 总金额: {currency_symbol}{total_amount:,.2f}\n"
                             f"🏷️ 市场: {market}\n"
                             f"⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
                 )
@@ -232,27 +240,128 @@ class PortfolioSkill(BaseSkill):
                 message=f"❌ 保存交易记录失败: {str(e)}"
             )
     
+    async def _reset_portfolio(self, user_id: str, confirm: bool = False) -> SkillResult:
+        """
+        重置/清零持仓
+        需要二次确认
+        """
+        if not confirm:
+            # 先查询当前持仓
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        SELECT 
+                            stock_name,
+                            stock_code,
+                            market,
+                            SUM(CASE WHEN action = 'buy' THEN shares ELSE -shares END) as total_shares,
+                            SUM(CASE WHEN action = 'buy' THEN total_amount ELSE -total_amount END) as total_cost
+                        FROM transactions
+                        WHERE user_id = ?
+                        GROUP BY stock_code
+                        HAVING total_shares > 0
+                        ORDER BY total_cost DESC
+                    ''', (user_id,))
+                    
+                    rows = cursor.fetchall()
+                    
+                    if not rows:
+                        return SkillResult(
+                            success=True,
+                            message="📋 当前没有持仓需要重置\n\n您的持仓已经为空。"
+                        )
+                    
+                    # 显示持仓概览
+                    holdings_info = []
+                    total_value = 0
+                    for row in rows:
+                        holdings_info.append(f"• {row['stock_name']} ({row['stock_code']}): {row['total_shares']}股")
+                        total_value += row['total_cost']
+                    
+                    return SkillResult(
+                        success=False,
+                        message=f"⚠️ 重置持仓确认\n\n"
+                                f"您当前有以下 {len(rows)} 只持仓:\n"
+                                + "\n".join(holdings_info) +
+                                f"\n\n💰 总成本: ¥{total_value:,.2f}\n\n"
+                                f"⚠️ 确定要清空所有持仓吗？\n\n"
+                                f"请输入「/reset 确认」或「/reset confirm」来执行重置操作。\n"
+                                f"此操作不可恢复！"
+                    )
+            except Exception as e:
+                return SkillResult(
+                    success=False,
+                    message=f"❌ 查询持仓失败: {str(e)}"
+                )
+        
+        # 执行重置
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # 获取重置前的统计
+                cursor.execute('''
+                    SELECT 
+                        COUNT(DISTINCT stock_code) as stock_count,
+                        SUM(CASE WHEN action = 'buy' THEN shares ELSE -shares END) as total_shares,
+                        SUM(CASE WHEN action = 'buy' THEN total_amount ELSE -total_amount END) as total_cost
+                    FROM transactions
+                    WHERE user_id = ?
+                ''', (user_id,))
+                
+                row = cursor.fetchone()
+                stock_count = row[0] or 0
+                total_shares = row[1] or 0
+                total_cost = row[2] or 0
+                
+                # 删除所有交易记录
+                cursor.execute('DELETE FROM transactions WHERE user_id = ?', (user_id,))
+                deleted_count = cursor.rowcount
+                conn.commit()
+                
+                return SkillResult(
+                    success=True,
+                    message=f"✅ 持仓已重置/清零\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━\n"
+                            f"📊 重置前持仓:\n"
+                            f"• 股票数量: {stock_count}只\n"
+                            f"• 总股数: {total_shares}股\n"
+                            f"• 总成本: ¥{total_cost:,.2f}\n"
+                            f"• 删除记录: {deleted_count}条\n\n"
+                            f"🗑️ 所有持仓记录已清空\n"
+                            f"⏰ 重置时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                            f"💡 提示: 您可以开始记录新的交易了"
+                )
+        except Exception as e:
+            return SkillResult(
+                success=False,
+                message=f"❌ 重置持仓失败: {str(e)}"
+            )
+    
     async def _query_portfolio(self, user_id: str) -> SkillResult:
-        """查询持仓情况"""
+        """查询持仓情况（支持多币种显示）"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 
-                # 查询该用户的所有交易记录，按股票分组汇总
+                # 查询该用户的所有交易记录，按股票和币种分组汇总
                 cursor.execute('''
                     SELECT 
                         stock_name,
                         stock_code,
                         market,
+                        COALESCE(MAX(currency), 'CNY') as currency,
                         SUM(CASE WHEN action = 'buy' THEN shares ELSE -shares END) as total_shares,
                         SUM(CASE WHEN action = 'buy' THEN total_amount ELSE -total_amount END) as total_cost,
                         COUNT(*) as trade_count
                     FROM transactions
                     WHERE user_id = ?
-                    GROUP BY stock_code
+                    GROUP BY stock_code, currency
                     HAVING total_shares > 0
-                    ORDER BY total_cost DESC
+                    ORDER BY currency, total_cost DESC
                 ''', (user_id,))
                 
                 rows = cursor.fetchall()
@@ -262,27 +371,30 @@ class PortfolioSkill(BaseSkill):
                         success=True,
                         message="📋 当前没有持仓\n\n您可以使用以下格式记录交易:\n"
                                 "• 买入茅台 100股 价格1500\n"
-                                "• 卖出腾讯 50股 价格400\n"
-                                "• 买入 AAPL 10股 180元"
+                                "• 卖出腾讯 50股 价格400港币\n"
+                                "• 买入 AAPL 10股 180美元"
                     )
                 
-                # 构建持仓报告
-                total_value = 0
-                total_cost = 0
-                holdings = []
-                
+                # 按币种分组
+                holdings_by_currency = {}
                 for row in rows:
                     holding = dict(row)
+                    currency = holding.get('currency', 'CNY')
                     avg_cost = holding['total_cost'] / holding['total_shares'] if holding['total_shares'] > 0 else 0
                     holding['avg_cost'] = avg_cost
-                    holdings.append(holding)
-                    total_cost += holding['total_cost']
+                    
+                    if currency not in holdings_by_currency:
+                        holdings_by_currency[currency] = []
+                    holdings_by_currency[currency].append(holding)
                 
-                # 获取当前股价（可选）
-                current_prices = await self._get_current_prices(holdings)
+                # 获取当前股价（可选）- 扁平化所有持仓
+                all_holdings = []
+                for currency, holdings_list in holdings_by_currency.items():
+                    all_holdings.extend(holdings_list)
+                current_prices = await self._get_current_prices(all_holdings)
                 
                 # 格式化输出
-                message = self._format_portfolio_message(holdings, current_prices, total_cost)
+                message = self._format_portfolio_by_currency(holdings_by_currency, current_prices)
                 
                 return SkillResult(success=True, message=message)
                 
@@ -349,54 +461,82 @@ class PortfolioSkill(BaseSkill):
         
         return prices
     
-    def _format_portfolio_message(self, holdings: List[Dict], 
-                                   current_prices: Dict[str, float],
-                                   total_cost: float) -> str:
-        """格式化持仓报告"""
+    def _format_portfolio_by_currency(self, 
+                                       holdings_by_currency: Dict[str, List[Dict]],
+                                       current_prices: Dict[str, float]) -> str:
+        """格式化持仓报告（按币种分组）"""
         message = "📊 我的持仓\n━━━━━━━━━━━━━━━━━━━━\n\n"
         
-        total_stocks = len(holdings)
-        total_shares_count = sum(h['total_shares'] for h in holdings)
+        # 币种符号映射
+        currency_symbols = {
+            'CNY': '¥',
+            'USD': '$',
+            'HKD': 'HK$'
+        }
         
-        for i, holding in enumerate(holdings, 1):
-            stock_code = holding['stock_code']
-            stock_name = holding['stock_name']
-            market = holding['market']
-            shares = holding['total_shares']
-            cost = holding['total_cost']
-            avg_cost = holding['avg_cost']
-            trade_count = holding['trade_count']
-            
-            # 如果有当前价格，计算盈亏
-            current_price = current_prices.get(stock_code)
-            if current_price:
-                current_value = current_price * shares
-                pnl = current_value - cost
-                pnl_pct = (pnl / cost * 100) if cost > 0 else 0
-                pnl_emoji = "📈" if pnl >= 0 else "📉"
-            else:
-                current_value = cost
-                pnl = 0
-                pnl_pct = 0
-                pnl_emoji = "➖"
-            
-            weight = (cost / total_cost * 100) if total_cost > 0 else 0
-            
-            message += f"{i}. {stock_name} ({stock_code})\n"
-            message += f"   📍 {market} | 持仓: {shares}股\n"
-            message += f"   💰 成本: ¥{cost:,.2f} (均价¥{avg_cost:.2f})\n"
-            if current_price:
-                message += f"   📊 现价: ¥{current_price:.2f}\n"
-                message += f"   {pnl_emoji} 盈亏: ¥{pnl:,.2f} ({pnl_pct:+.2f}%)\n"
-            message += f"   📎 仓位: {weight:.1f}%\n"
-            if i < len(holdings):
-                message += "\n"
+        total_all_stocks = 0
+        currency_totals = {}
         
-        message += f"\n━━━━━━━━━━━━━━━━━━━━\n"
-        message += f"📈 持仓统计:\n"
-        message += f"• 持股数量: {total_stocks}只\n"
-        message += f"• 总股数: {total_shares_count}股\n"
-        message += f"• 总成本: ¥{total_cost:,.2f}\n"
+        # 按币种分组显示
+        currency_order = ['CNY', 'HKD', 'USD']  # 显示顺序
+        
+        for currency in currency_order:
+            if currency not in holdings_by_currency:
+                continue
+                
+            holdings = holdings_by_currency[currency]
+            symbol = currency_symbols.get(currency, currency)
+            currency_name = {'CNY': '人民币', 'USD': '美元', 'HKD': '港币'}.get(currency, currency)
+            
+            total_cost_currency = sum(h['total_cost'] for h in holdings)
+            currency_totals[currency] = total_cost_currency
+            total_all_stocks += len(holdings)
+            
+            message += f"【{currency_name}账户】\n"
+            
+            for i, holding in enumerate(holdings, 1):
+                stock_code = holding['stock_code']
+                stock_name = holding['stock_name']
+                market = holding['market']
+                shares = holding['total_shares']
+                cost = holding['total_cost']
+                avg_cost = holding['avg_cost']
+                
+                # 如果有当前价格，计算盈亏
+                current_price = current_prices.get(stock_code)
+                if current_price:
+                    current_value = current_price * shares
+                    pnl = current_value - cost
+                    pnl_pct = (pnl / cost * 100) if cost > 0 else 0
+                    pnl_emoji = "📈" if pnl >= 0 else "📉"
+                else:
+                    current_value = cost
+                    pnl = 0
+                    pnl_pct = 0
+                    pnl_emoji = "➖"
+                
+                weight = (cost / total_cost_currency * 100) if total_cost_currency > 0 else 0
+                
+                message += f"{i}. {stock_name} ({stock_code})\n"
+                message += f"   📍 {market} | 持仓: {shares}股\n"
+                message += f"   💰 成本: {symbol}{cost:,.2f} (均价{symbol}{avg_cost:.2f})\n"
+                if current_price:
+                    message += f"   📊 现价: {symbol}{current_price:.2f}\n"
+                    message += f"   {pnl_emoji} 盈亏: {symbol}{pnl:,.2f} ({pnl_pct:+.2f}%)\n"
+                message += f"   📎 仓位: {weight:.1f}%\n"
+                if i < len(holdings):
+                    message += "\n"
+            
+            message += f"\n💵 {currency_name}小计: {symbol}{total_cost_currency:,.2f} | {len(holdings)}只持仓\n"
+            message += "\n"
+        
+        message += f"━━━━━━━━━━━━━━━━━━━━\n"
+        message += f"📈 总持仓统计:\n"
+        message += f"• 总持股: {total_all_stocks}只\n"
+        for currency, total in currency_totals.items():
+            symbol = currency_symbols.get(currency, currency)
+            currency_name = {'CNY': '人民币', 'USD': '美元', 'HKD': '港币'}.get(currency, currency)
+            message += f"• {currency_name}: {symbol}{total:,.2f}\n"
         
         return message
     
@@ -441,7 +581,8 @@ class PortfolioSkill(BaseSkill):
         支持格式：
         - 买入茅台 100股 价格1500
         - 卖出腾讯 50股 400元
-        - 买入AAPL 10股 180
+        - 买入AAPL 10股 180美元
+        - 买入腾讯 100股 400港币
         - 记录买入 宁德时代 200股 220元
         """
         message = message.strip()
@@ -500,7 +641,7 @@ class PortfolioSkill(BaseSkill):
         if not stock_name:
             # 排除操作关键词中的字
             cleaned = message
-            for kw in ['买入', '卖出', 'buy', 'sell', '购买', '记录', '价格', '元']:
+            for kw in ['买入', '卖出', 'buy', 'sell', '购买', '记录', '价格', '元', '美元', '港币', '人民币']:
                 cleaned = cleaned.replace(kw, ' ')
             
             # 找中文股票名（2-5个汉字）
@@ -513,15 +654,55 @@ class PortfolioSkill(BaseSkill):
                 if match:
                     stock_name = match.group(1).strip()
         
+        # 识别币种
+        currency = self._detect_currency(message, stock_name)
+        
         if action and stock_name and shares > 0 and price > 0:
             return {
                 'action': action,
                 'stock_name': stock_name,
                 'shares': shares,
-                'price': price
+                'price': price,
+                'currency': currency
             }
         
         return None
+    
+    def _detect_currency(self, message: str, stock_name: str) -> str:
+        """
+        检测交易币种
+        支持人民币(CNY)、美元(USD)、港币(HKD)
+        """
+        message_upper = message.upper()
+        
+        # 1. 直接识别币种关键词
+        if any(kw in message for kw in ['美元', 'USD', '$', '美金']):
+            return 'USD'
+        if any(kw in message for kw in ['港币', '港元', 'HKD', 'HK$']):
+            return 'HKD'
+        if any(kw in message for kw in ['人民币', 'CNY', 'RMB', '¥']):
+            return 'CNY'
+        
+        # 2. 根据股票名称推断（如果未明确指定币种）
+        # 美股常用代码
+        us_stocks = ['AAPL', 'GOOGL', 'GOOG', 'MSFT', 'AMZN', 'TSLA', 'META', 'NVDA', 
+                     'NFLX', 'AMD', 'INTC', 'BABA', 'JD', 'PDD', 'NIO', 'LI', 'XPEV',
+                     '苹果', '微软', '谷歌', '亚马逊', '特斯拉', 'Meta', '英伟达',
+                     '奈飞', '英特尔', '阿里巴巴', '拼多多', '蔚来', '理想', '小鹏']
+        
+        # 港股常用代码
+        hk_stocks = ['腾讯', '美团', '小米', '阿里', '京东', '百度', '网易', '快手',
+                     '比亚迪', '港交所', '中国移动', '联想', '李宁', '安踏', '海底捞',
+                     '00700', '03690', '01810', '09988', '09618', '09888', '09999']
+        
+        if stock_name.upper() in us_stocks or any(s in stock_name for s in us_stocks):
+            return 'USD'
+        
+        if stock_name in hk_stocks or any(s in stock_name for s in hk_stocks):
+            return 'HKD'
+        
+        # 3. 默认人民币
+        return 'CNY'
     
     async def parse_with_llm(self, message: str) -> Optional[Dict[str, Any]]:
         """
