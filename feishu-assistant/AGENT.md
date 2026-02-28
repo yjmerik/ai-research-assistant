@@ -84,7 +84,48 @@ def _format_deep_analysis_message()  # 深度分析报告
 - 实时追踪持仓股票价格
 - 计算内在价值和安全边际
 
-### 4. portfolio_tracker_cron.py - 持仓追踪定时任务
+### 4. news_reading_skill.py - 新闻精读技能
+
+**功能**：
+- 获取纽约时报和经济学人精选新闻（各3篇）
+- 保留英文原文（长文）
+- 使用 LLM 生成重点单词（3-5个）+ 中文含义
+- 使用 LLM 生成关键句子（3个）+ 中文翻译 + 讲解
+- 生成中文文章总结
+- 创建飞书文档并写入完整内容
+- 发送飞书消息通知（包含文档链接）
+
+**使用方式**：
+```python
+skill = NewsReadingSkill(config={"kimi_api_key": KIMI_API_KEY})
+result = await skill.execute(action="fetch")
+```
+
+**预设新闻**：
+- 当前使用预设的高质量长文（当 API 不可用时）
+- 包含完整的英文原文（不是短摘要）
+- 涵盖经济、气候、科技、产业政策等主题
+
+### 5. news_reading_cron.py - 新闻精读定时任务
+
+**功能**：
+- 每天定时获取新闻
+- 自动生成精读内容
+- 创建飞书文档（包含原文+单词+句子+总结）
+- 发送飞书消息通知（包含文档链接）
+
+**定时任务配置**（Crontab）：
+```bash
+# 每天 7:00 执行
+0 7 * * * cd /opt/feishu-assistant && /usr/bin/python3.11 news_reading_cron.py >> logs/news_reading.log 2>&1
+```
+
+**飞书文档创建**：
+- 使用 `docx/v1/documents` API 创建文档
+- 文档链接格式：`https://my.feishu.cn/docx/{document_id}`
+- 文档内容：标题 + 英文原文 + 重点单词 + 关键句子 + 中文总结
+
+### 6. portfolio_tracker_cron.py - 持仓追踪定时任务
 
 **功能**：
 - 定时执行价值投资分析
