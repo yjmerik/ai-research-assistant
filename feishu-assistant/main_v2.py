@@ -31,6 +31,7 @@ FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID")
 FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET")
 KIMI_API_KEY = os.environ.get("KIMI_API_KEY")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+QVERIS_API_KEY = os.environ.get("QVERIS_API_KEY")
 
 print(f"🚀 飞书 AI 助手 v2.0 启动")
 print(f"   APP_ID: {FEISHU_APP_ID[:20] if FEISHU_APP_ID else 'Not Set'}...")
@@ -47,7 +48,7 @@ def init_components():
     registry.register(GitHubSkill(config={"github_token": GITHUB_TOKEN}))
     registry.register(PaperSkill())
     registry.register(ChatSkill(config={"llm_api_key": KIMI_API_KEY}))
-    registry.register(StockSkill(config={"kimi_api_key": KIMI_API_KEY}))
+    registry.register(StockSkill(config={"kimi_api_key": KIMI_API_KEY, "qveris_api_key": QVERIS_API_KEY}))
     registry.register(PortfolioSkill(config={"kimi_api_key": KIMI_API_KEY}))
     registry.register(PortfolioTrackerSkill(config={"kimi_api_key": KIMI_API_KEY}))
     
