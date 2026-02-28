@@ -912,8 +912,8 @@ The fundamental question remains unresolved: how should societies balance the tr
                 "speaker_info": {
                     "random_order": True,
                     "speakers": [
-                        "zh_male_dayixiansheng_v2_saturn_bigtts",
-                        "zh_female_mizaitongxue_v2_saturn_bigtts"
+                        "en_us_male_graygman_v2_saturn_bigtts",
+                        "en_us_female_annaly_v2_saturn_bigtts"
                     ]
                 },
                 "input_info": {"return_audio_url": True}
