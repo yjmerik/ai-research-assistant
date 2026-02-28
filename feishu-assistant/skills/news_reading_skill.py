@@ -20,6 +20,10 @@ class NewsReadingSkill(BaseSkill):
     name = "news_reading"
     description = "获取纽约时报和经济学人精选新闻，提供英文原文和中文讲解"
 
+    # 类级别缓存
+    _cache: Dict[str, Any] = {}
+    _cache_date: str = ""
+
     # NYT API (需要 API key)
     NYT_API_KEY = os.environ.get("NYT_API_KEY", "")
     # Economist (网页抓取)
@@ -62,8 +66,22 @@ class NewsReadingSkill(BaseSkill):
                 message=f"测试失败: {str(e)}"
             )
 
-    async def fetch_daily_news(self) -> SkillResult:
-        """获取每日新闻精读"""
+    async def fetch_daily_news(self, use_cache: bool = True) -> SkillResult:
+        """获取每日新闻精读
+
+        Args:
+            use_cache: 是否使用缓存（当天内返回相同内容）
+        """
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # 检查缓存
+        if use_cache and NewsReadingSkill._cache_date == today:
+            cached = NewsReadingSkill._cache.get("result")
+            if cached:
+                print("📦 使用缓存的新闻精读")
+                return cached
+
         try:
             all_news = []
 
@@ -105,10 +123,16 @@ class NewsReadingSkill(BaseSkill):
             if podcast_url:
                 message += f"\n🎙️ 播客链接: {podcast_url}"
 
-            return SkillResult(
+            # 保存到缓存
+            result = SkillResult(
                 success=True,
                 message=message
             )
+            NewsReadingSkill._cache_date = today
+            NewsReadingSkill._cache["result"] = result
+            print("💾 已保存到缓存")
+
+            return result
 
         except Exception as e:
             import traceback
@@ -912,8 +936,8 @@ The fundamental question remains unresolved: how should societies balance the tr
                 "speaker_info": {
                     "random_order": True,
                     "speakers": [
-                        "en_us_male_graygman_v2_saturn_bigtts",
-                        "en_us_female_annaly_v2_saturn_bigtts"
+                        "zh_male_dayixiansheng_v2_saturn_bigtts",
+                        "zh_female_mizaitongxue_v2_saturn_bigtts"
                     ]
                 },
                 "input_info": {"return_audio_url": True}
@@ -975,9 +999,9 @@ The fundamental question remains unresolved: how should societies balance the tr
             return ""
 
     def _prepare_podcast_text(self, readings: List[Dict]) -> str:
-        """准备播客文本（英文）"""
+        """准备播客文本"""
         lines = []
-        lines.append("Hello everyone, welcome to today's news briefing.")
+        lines.append("大家好，今天为大家带来新闻精读。")
 
         for i, r in enumerate(readings, 1):
             title = r.get("title", "")
@@ -985,14 +1009,14 @@ The fundamental question remains unresolved: how should societies balance the tr
             content = r.get("content", "")[:2000]  # 限制长度
             summary = r.get("summary", "")
 
-            lines.append(f"Article {i}, from {source}:")
-            lines.append(f"Title: {title}")
-            lines.append(f"Content: {content}")
+            lines.append(f"第{i}篇，{source}报道：")
+            lines.append(f"标题：{title}")
+            lines.append(f"原文内容：{content}")
             if summary:
-                lines.append(f"Summary: {summary}")
+                lines.append(f"总结：{summary}")
             lines.append("")
 
-        lines.append("That's all for today's news briefing. Thank you for listening.")
+        lines.append("以上就是今天的新闻精读，感谢收听。")
         return "\n".join(lines)
 
     async def _call_doubao_podcast_api(self, text: str) -> str:

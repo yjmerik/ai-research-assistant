@@ -4,12 +4,15 @@
 生成英文原文 + 重点单词 + 句子讲解，保存到飞书文档
 
 用法:
-  # 运行一次
+  # 运行一次（默认使用缓存）
   /usr/bin/python3.11 news_reading_cron.py
+  # 强制刷新（不使用缓存）
+  /usr/bin/python3.11 news_reading_cron.py --force
 """
 import os
 import sys
 import asyncio
+import argparse
 from pathlib import Path
 from datetime import datetime
 
@@ -30,10 +33,16 @@ if env_file.exists():
 from skills.news_reading_skill import NewsReadingSkill
 
 
-async def main():
-    """主函数"""
+async def main(force: bool = False):
+    """主函数
+
+    Args:
+        force: 是否强制刷新（不使用缓存）
+    """
     now = datetime.now()
     print(f"📰 新闻精读任务 - {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    if force:
+        print("🔄 强制刷新模式")
 
     # 检查配置
     feishu_app_id = os.environ.get("FEISHU_APP_ID")
@@ -51,7 +60,7 @@ async def main():
 
     # 执行
     print("📥 开始获取新闻...")
-    result = await skill.fetch_daily_news()
+    result = await skill.fetch_daily_news(use_cache=not force)
 
     if result.success:
         print("✅ 任务完成")
@@ -64,4 +73,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    exit(asyncio.run(main()))
+    parser = argparse.ArgumentParser(description="新闻精读定时任务")
+    parser.add_argument("--force", action="store_true", help="强制刷新，不使用缓存")
+    args = parser.parse_args()
+
+    exit(asyncio.run(main(force=args.force)))
