@@ -960,22 +960,10 @@ The fundamental question remains unresolved: how should societies balance the tr
 
             ws.close()
 
-            # 4. 下载音频
+            # 4. 返回公网 URL（不下载到本地，URL 有效期1小时）
             if audio_url:
-                print(f"\n📥 下载音频...")
-                requests.packages.urllib3.disable_warnings()
-                r = requests.get(audio_url, verify=False, stream=True, timeout=120)
-
-                # 保存到临时文件
-                import os
-                output_file = f"/tmp/podcast_{int(time.time())}.mp3"
-                with open(output_file, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-
-                print(f"✅ 音频已保存: {output_file}")
-                return output_file
+                print(f"\n✅ 播客音频 URL: {audio_url[:80]}...")
+                return audio_url
             else:
                 print("\n❌ 未获取到音频URL")
                 return ""
