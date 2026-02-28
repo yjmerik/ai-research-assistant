@@ -975,9 +975,9 @@ The fundamental question remains unresolved: how should societies balance the tr
             return ""
 
     def _prepare_podcast_text(self, readings: List[Dict]) -> str:
-        """准备播客文本"""
+        """准备播客文本（英文）"""
         lines = []
-        lines.append("大家好，今天为大家带来新闻精读。")
+        lines.append("Hello everyone, welcome to today's news briefing.")
 
         for i, r in enumerate(readings, 1):
             title = r.get("title", "")
@@ -985,14 +985,14 @@ The fundamental question remains unresolved: how should societies balance the tr
             content = r.get("content", "")[:2000]  # 限制长度
             summary = r.get("summary", "")
 
-            lines.append(f"第{i}篇，{source}报道：")
-            lines.append(f"标题：{title}")
-            lines.append(f"原文内容：{content}")
+            lines.append(f"Article {i}, from {source}:")
+            lines.append(f"Title: {title}")
+            lines.append(f"Content: {content}")
             if summary:
-                lines.append(f"总结：{summary}")
+                lines.append(f"Summary: {summary}")
             lines.append("")
 
-        lines.append("以上就是今天的新闻精读，感谢收听。")
+        lines.append("That's all for today's news briefing. Thank you for listening.")
         return "\n".join(lines)
 
     async def _call_doubao_podcast_api(self, text: str) -> str:
