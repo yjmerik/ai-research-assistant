@@ -30,6 +30,10 @@ class NewsReadingSkill(BaseSkill):
         self.kimi_api_key = config.get("kimi_api_key") if config else os.environ.get("KIMI_API_KEY")
         self.feishu_app_id = os.environ.get("FEISHU_APP_ID")
         self.feishu_app_secret = os.environ.get("FEISHU_APP_SECRET")
+        # 火山引擎 API 密钥
+        self.volcengine_access_key = os.environ.get("VOLCENGINE_ACCESS_KEY", "pOzMLb-Ez8AvBJ1Ym47m_Fk2l6ULzzRC")
+        self.volcengine_secret_key = os.environ.get("VOLCENGINE_SECRET_KEY", "iq-Pa3WVvd4kALTYdiCH48L4n9HqVIX7")
+        self.volcengine_app_id = os.environ.get("VOLCENGINE_APP_ID", "5884074284")
 
     async def execute(self, action: str = "fetch", **kwargs) -> SkillResult:
         """执行新闻获取"""
@@ -84,16 +88,22 @@ class NewsReadingSkill(BaseSkill):
             readings = await self.generate_readings(all_news)
 
             # Debug: 检查生成的 readings
-            # 4. 创建飞书文档
-            print("📄 创建飞书文档...")
-            doc_url = await self.create_feishu_document(readings)
+            # 4. 生成播客音频
+            print("🎙️ 生成播客音频...")
+            podcast_url = await self.generate_podcast(readings)
 
-            # 5. 发送通知
+            # 5. 创建飞书文档
+            print("📄 创建飞书文档...")
+            doc_url = await self.create_feishu_document(readings, podcast_url)
+
+            # 6. 发送通知
             message = f"📰 每日新闻精读已生成\n\n"
             for i, r in enumerate(readings, 1):
                 message += f"{i}. {r['title']}\n"
 
             message += f"\n📄 文档链接: {doc_url}"
+            if podcast_url:
+                message += f"\n🎙️ 播客链接: {podcast_url}"
 
             return SkillResult(
                 success=True,
@@ -407,7 +417,7 @@ The fundamental question remains unresolved: how should societies balance the tr
             "summary": news["abstract"]
         }
 
-    async def create_feishu_document(self, readings: List[Dict]) -> str:
+    async def create_feishu_document(self, readings: List[Dict], podcast_url: str = "") -> str:
         """创建飞书文档并发送消息"""
         try:
             token = await self.get_feishu_token()
@@ -418,7 +428,7 @@ The fundamental question remains unresolved: how should societies balance the tr
                 # 尝试创建飞书文档
                 date_str = datetime.now().strftime("%Y年%m月%d日")
                 doc_title = f"每日新闻精读 - {date_str}"
-                doc_content = self._build_document_content(readings)
+                doc_content = self._build_document_content(readings, podcast_url)
                 doc_url = await self._create_feishu_doc_api(token, doc_title, doc_content)
                 if doc_url and doc_url.startswith("http"):
                     doc_created = True
@@ -433,12 +443,22 @@ The fundamental question remains unresolved: how should societies balance the tr
             traceback.print_exc()
             return await self._create_text_content(readings, "")
 
-    def _build_document_content(self, readings: List[Dict]) -> str:
+    def _build_document_content(self, readings: List[Dict], podcast_url: str = "") -> str:
         """构建飞书文档内容 (纯文本格式)"""
         lines = []
 
         # 添加标题
         date_str = datetime.now().strftime("%Y年%m月%d日")
+        lines.append(f"# 📰 每日新闻精读 - {date_str}")
+        lines.append("")
+
+        # 添加播客链接
+        if podcast_url:
+            lines.append(f"🎙️ 播客音频: {podcast_url}")
+            lines.append("")
+
+        lines.append("来源：纽约时报 + 经济学人")
+        lines.append("")
         lines.append(f"# 📰 每日新闻精读 - {date_str}")
         lines.append("")
         lines.append("来源：纽约时报 + 经济学人")
@@ -783,3 +803,389 @@ The fundamental question remains unresolved: how should societies balance the tr
             traceback.print_exc()
 
         return None
+
+    # ==================== 豆包播客 TTS 功能 ====================
+
+    async def generate_podcast(self, readings: List[Dict]) -> str:
+        """生成播客音频"""
+        try:
+            # 合并所有文章的原文和总结作为播客内容
+            podcast_text = self._prepare_podcast_text(readings)
+
+            if not podcast_text:
+                print("⚠️ 没有内容可生成播客")
+                return ""
+
+            print(f"🎙️ 开始生成播客，文本长度: {len(podcast_text)} 字符")
+
+            # 调用豆包播客API（使用同步版本）
+            loop = asyncio.get_event_loop()
+            audio_url = await loop.run_in_executor(
+                None,
+                self._generate_podcast_sync,
+                podcast_text
+            )
+
+            if audio_url:
+                print(f"✅ 播客生成成功: {audio_url}")
+                return audio_url
+            else:
+                print("⚠️ 播客生成失败")
+                return ""
+
+        except Exception as e:
+            print(f"生成播客失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return ""
+
+    def _generate_podcast_sync(self, text: str) -> str:
+        """同步生成播客（使用官方示例方式）"""
+        import websocket
+        import json
+        import struct
+        import uuid
+        import ssl
+        import time
+        import requests
+
+        WS_URL = "wss://openspeech.bytedance.com/api/v3/sami/podcasttts"
+
+        def build_msg(event, payload, session_id=None):
+            """构建 WebSocket 消息"""
+            header = bytes([0x11, 0b00010100, 0x10, 0x00])  # type=1, flags=0100
+            pl = payload.encode() if isinstance(payload, str) else payload
+            parts = [struct.pack('>I', event)]
+            if session_id is not None:
+                sid = session_id.encode()[:12].ljust(12, b'\x00')
+                parts.extend([struct.pack('>I', len(sid)), sid])
+            parts.extend([struct.pack('>I', len(pl)), pl])
+            return header + b''.join(parts)
+
+        def parse_msg(data):
+            """解析 WebSocket 消息"""
+            if len(data) < 12:
+                return None
+            msg_type = (data[1] >> 4) & 0x0F
+            event = struct.unpack('>I', data[4:8])[0]
+            session_id_len = struct.unpack('>I', data[8:12])[0]
+            offset = 12 + session_id_len
+            payload_len = struct.unpack('>I', data[offset:offset+4])[0]
+            payload = data[offset+4:offset+4+payload_len]
+            try:
+                payload = json.loads(payload.decode())
+            except:
+                pass
+            return {'msg_type': msg_type, 'event': event, 'payload': payload}
+
+        session_id = str(uuid.uuid4())
+
+        try:
+            # 连接 WebSocket
+            ws = websocket.create_connection(
+                WS_URL,
+                header={
+                    'X-Api-App-Id': self.volcengine_app_id,
+                    'X-Api-Access-Key': self.volcengine_access_key,
+                    'X-Api-Resource-Id': 'volc.service_type.10050',
+                    'X-Api-App-Key': 'aGjiRDfUWi',
+                },
+                sslopt={"cert_reqs": ssl.CERT_NONE},
+                timeout=180
+            )
+
+            # 1. StartConnection
+            print("1️⃣  StartConnection...")
+            ws.send(build_msg(1, "{}"), opcode=websocket.ABNF.OPCODE_BINARY)
+            msg = parse_msg(ws.recv())
+            print(f"   ✅ ConnectionStarted (event={msg['event']})\n")
+
+            # 2. StartSession - 注意 event=100
+            print("2️⃣  StartSession...")
+            params = {
+                "input_id": f"news_{int(time.time())}",
+                "input_text": text[:5000],  # 限制长度
+                "action": 0,
+                "use_head_music": True,
+                "use_tail_music": False,
+                "audio_config": {"format": "mp3", "sample_rate": 24000},
+                "speaker_info": {
+                    "random_order": True,
+                    "speakers": [
+                        "zh_male_dayixiansheng_v2_saturn_bigtts",
+                        "zh_female_mizaitongxue_v2_saturn_bigtts"
+                    ]
+                },
+                "input_info": {"return_audio_url": True}
+            }
+            ws.send(build_msg(100, json.dumps(params), session_id), opcode=websocket.ABNF.OPCODE_BINARY)
+
+            # 3. 接收播客数据
+            print("\n3️⃣  正在生成播客...\n")
+            audio_url = None
+            ws.settimeout(300)
+
+            while True:
+                try:
+                    data = ws.recv()
+                    msg = parse_msg(data)
+                    if not msg:
+                        continue
+
+                    event = msg['event']
+                    payload = msg['payload']
+
+                    if event == 150:
+                        print("✅ SessionStarted\n")
+                    elif event == 360:
+                        round_id = payload.get('round_id', 0)
+                        if round_id == -1:
+                            print("🎵 片头音乐\n")
+                        elif round_id == 9999:
+                            print("🎵 片尾音乐\n")
+                    elif event == 363:
+                        audio_url = payload.get('meta_info', {}).get('audio_url')
+                        print(f"\n✅ PodcastEnd! 播客生成完成!")
+                        break
+                    elif event == 152:
+                        print("✅ SessionFinished")
+                        break
+
+                except websocket.WebSocketTimeoutException:
+                    print("⏱️ 超时")
+                    break
+                except Exception as e:
+                    print(f"❌ 错误: {e}")
+                    break
+
+            ws.close()
+
+            # 4. 下载音频
+            if audio_url:
+                print(f"\n📥 下载音频...")
+                requests.packages.urllib3.disable_warnings()
+                r = requests.get(audio_url, verify=False, stream=True, timeout=120)
+
+                # 保存到临时文件
+                import os
+                output_file = f"/tmp/podcast_{int(time.time())}.mp3"
+                with open(output_file, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+
+                print(f"✅ 音频已保存: {output_file}")
+                return output_file
+            else:
+                print("\n❌ 未获取到音频URL")
+                return ""
+
+        except Exception as e:
+            print(f"❌ 播客生成错误: {e}")
+            import traceback
+            traceback.print_exc()
+            return ""
+
+    def _prepare_podcast_text(self, readings: List[Dict]) -> str:
+        """准备播客文本"""
+        lines = []
+        lines.append("大家好，今天为大家带来新闻精读。")
+
+        for i, r in enumerate(readings, 1):
+            title = r.get("title", "")
+            source = r.get("source", "")
+            content = r.get("content", "")[:2000]  # 限制长度
+            summary = r.get("summary", "")
+
+            lines.append(f"第{i}篇，{source}报道：")
+            lines.append(f"标题：{title}")
+            lines.append(f"原文内容：{content}")
+            if summary:
+                lines.append(f"总结：{summary}")
+            lines.append("")
+
+        lines.append("以上就是今天的新闻精读，感谢收听。")
+        return "\n".join(lines)
+
+    async def _call_doubao_podcast_api(self, text: str) -> str:
+        """调用豆包播客TTS API"""
+        import uuid
+        import websockets
+        from websockets.exceptions import ConnectionClosed
+
+        ws_url = "wss://openspeech.bytedance.com/api/v3/sami/podcasttts"
+
+        # 使用 dict 格式的 headers
+        headers = {
+            "X-Api-App-Id": self.volcengine_app_id,
+            "X-Api-Access-Key": self.volcengine_access_key,
+            "X-Api-Resource-Id": "volc.service_type.10050",
+            "X-Api-App-Key": "aGjiRDfUWi",
+            "X-Api-Request-Id": str(uuid.uuid4())
+        }
+
+        # 构建请求参数
+        request_payload = {
+            "input_id": f"news_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "input_text": text[:8000],  # 限制文本长度
+            "action": 0,
+            "use_head_music": True,
+            "audio_params": {
+                "format": "mp3",
+                "sample_rate": 24000,
+                "speech_rate": 0,
+            },
+            "speaker_info": {
+                "random_order": True,
+                "speakers": [
+                    "zh_male_dayixiansheng_v2_saturn_bigtts",
+                    "zh_female_mizaitongxue_v2_saturn_bigtts"
+                ]
+            },
+            "aigc_watermark": False
+        }
+
+        try:
+            async with websockets.connect(ws_url, additional_headers=headers) as ws:
+                print("🔌 WebSocket 连接成功")
+
+                # 发送 StartSession 帧
+                await self._send_start_session(ws, request_payload)
+
+                # 接收响应
+                audio_url = await self._receive_podcast_response(ws)
+
+                return audio_url
+
+        except ConnectionClosed as e:
+            print(f"WebSocket 连接关闭: {e}")
+            return ""
+        except Exception as e:
+            print(f"WebSocket 错误: {e}")
+            import traceback
+            traceback.print_exc()
+            return ""
+
+    async def _send_start_session(self, ws, payload: dict):
+        """发送 StartSession 帧"""
+        import json
+
+        session_id = "session_" + str(datetime.now().timestamp())
+        payload_json = json.dumps(payload)
+
+        # 构建二进制帧
+        # header: 4 bytes
+        # [0] = 0b0001_0001 (version=1, header_size=1)
+        # [1] = 0b1001_0100 (message_type=9, flags=4)
+        # [2] = 0b0001_0000 (serialization=JSON, compression=none)
+        # [3] = 0b0000_0000 (reserved)
+        header = bytes([0x11, 0x94, 0x10, 0x00])
+
+        # event type: StartSession = 1001 (需要转换为大端 uint32)
+        event_type = (1001).to_bytes(4, 'big')
+
+        # session_id
+        session_id_bytes = session_id.encode('utf-8')
+        session_id_len = len(session_id_bytes).to_bytes(4, 'big')
+
+        # payload
+        payload_bytes = payload_json.encode('utf-8')
+        payload_len = len(payload_bytes).to_bytes(4, 'big')
+
+        # 组合帧
+        frame = header + event_type + session_id_len + session_id_bytes + payload_len + payload_bytes
+
+        await ws.send(frame)
+        print(f"📤 已发送 StartSession 帧")
+
+    async def _receive_podcast_response(self, ws) -> str:
+        """接收播客响应"""
+        audio_data = b""
+        audio_url = ""
+
+        while True:
+            try:
+                message = await ws.recv()
+
+                if isinstance(message, bytes):
+                    # 解析二进制帧
+                    if len(message) < 8:
+                        continue
+
+                    # 解析 header
+                    byte0 = message[0]
+                    byte1 = message[1]
+                    byte2 = message[2]
+
+                    version = (byte0 >> 4) & 0x0F
+                    header_size = (byte0 & 0x0F) * 4
+                    message_type = (byte1 >> 4) & 0x0F
+                    flags = byte1 & 0x0F
+                    serialization = (byte2 >> 4) & 0x0F
+                    compression = byte2 & 0x0F
+
+                    # 解析 event number (4 bytes)
+                    if len(message) >= 12:
+                        event_num = int.from_bytes(message[4:8], 'big')
+
+                        # 解析 payload length
+                        payload_len = int.from_bytes(message[8:12], 'big')
+
+                        # 解析 payload
+                        if len(message) >= 12 + payload_len:
+                            payload = message[12:12+payload_len]
+
+                            # event 361: PodcastRoundResponse (音频)
+                            # event 363: PodcastEnd (包含 audio_url)
+                            if event_num == 363:
+                                try:
+                                    import json
+                                    data = json.loads(payload.decode('utf-8'))
+                                    meta_info = data.get("meta_info", {})
+                                    audio_url = meta_info.get("audio_url", "")
+                                    print(f"📥 收到 audio_url: {audio_url[:50]}..." if audio_url else "没有 audio_url")
+                                except:
+                                    pass
+
+                            # event 152: SessionFinished
+                            elif event_num == 152:
+                                print("📥 收到 SessionFinished")
+                                break
+
+                elif isinstance(message, str):
+                    # 文本消息
+                    print(f"📥 收到文本消息: {message[:100]}")
+
+            except Exception as e:
+                print(f"接收消息错误: {e}")
+                break
+
+        return audio_url
+
+    async def _send_finish_session(self, ws):
+        """发送 FinishSession 帧"""
+        session_id = "session_" + str(datetime.now().timestamp())
+
+        header = bytes([0x11, 0x94, 0x10, 0x00])
+        event_type = (1002).to_bytes(4, 'big')  # FinishSession
+        session_id_bytes = session_id.encode('utf-8')
+        session_id_len = len(session_id_bytes).to_bytes(4, 'big')
+        payload = b"{}"
+        payload_len = len(payload).to_bytes(4, 'big')
+
+        frame = header + event_type + session_id_len + session_id_bytes + payload_len + payload
+
+        await ws.send(frame)
+        print("📤 已发送 FinishSession 帧")
+
+    async def _send_finish_connection(self, ws):
+        """发送 FinishConnection 帧"""
+        header = bytes([0x11, 0x94, 0x10, 0x00])
+        event_type = (2).to_bytes(4, 'big')  # FinishConnection
+        payload = b"{}"
+        payload_len = len(payload).to_bytes(4, 'big')
+
+        frame = header + event_type + payload_len + payload
+
+        await ws.send(frame)
+        print("📤 已发送 FinishConnection 帧")

@@ -92,6 +92,7 @@ def _format_deep_analysis_message()  # 深度分析报告
 - 使用 LLM 生成重点单词（3-5个）+ 中文含义
 - 使用 LLM 生成关键句子（3个）+ 中文翻译 + 讲解
 - 生成中文文章总结
+- 生成播客音频（豆包语音大模型）
 - 创建飞书文档并写入完整内容
 - 发送飞书消息通知（包含文档链接）
 
@@ -100,6 +101,15 @@ def _format_deep_analysis_message()  # 深度分析报告
 skill = NewsReadingSkill(config={"kimi_api_key": KIMI_API_KEY})
 result = await skill.execute(action="fetch")
 ```
+
+**播客生成**：
+- 使用火山引擎豆包播客 TTS API
+- 支持双人播客（dayi 先生 + 咪仔同学）
+- 生成音频并保存到本地文件
+- 凭证配置（环境变量）：
+  - VOLCENGINE_ACCESS_KEY: 火山引擎 Access Token
+  - VOLCENGINE_SECRET_KEY: 火山引擎 Secret Key
+  - VOLCENGINE_APP_ID: 火山引擎 App ID
 
 **预设新闻**：
 - 当前使用预设的高质量长文（当 API 不可用时）
@@ -111,6 +121,7 @@ result = await skill.execute(action="fetch")
 **功能**：
 - 每天定时获取新闻
 - 自动生成精读内容
+- 生成播客音频
 - 创建飞书文档（包含原文+单词+句子+总结）
 - 发送飞书消息通知（包含文档链接）
 
