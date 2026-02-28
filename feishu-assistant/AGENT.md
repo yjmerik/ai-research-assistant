@@ -22,6 +22,7 @@ feishu-assistant/
 │   ├── stock_skill.py     # 股票分析技能 (核心)
 │   ├── portfolio_skill.py       # 持仓管理技能
 │   └── portfolio_tracker_skill.py # 持仓追踪技能
+├── portfolio_tracker_cron.py  # 持仓追踪定时任务
 └── .env                   # 环境变量配置
 ```
 
@@ -77,12 +78,55 @@ def _format_deep_analysis_message()  # 深度分析报告
 - `/持仓` - 查看持仓
 - `/reset` - 重置持仓
 
-### 3. portfolio_tracker_skill.py - 持仓追踪
+### 3. portfolio_tracker_skill.py - 持仓追踪（Skill）
 
 **功能**：
-- 自动追踪持仓股票价格
+- 实时追踪持仓股票价格
 - 计算内在价值和安全边际
-- 定时发送通知
+
+### 4. portfolio_tracker_cron.py - 持仓追踪定时任务
+
+**功能**：
+- 定时执行价值投资分析
+- 自动识别持仓市场
+- 只追踪开市的市场
+
+**使用方式**：
+```bash
+# 自动模式（智能识别持仓市场，只追踪开市的市场）
+python3.11 portfolio_tracker_cron.py --auto
+
+# 强制追踪指定市场
+python3.11 portfolio_tracker_cron.py --market A股
+python3.11 portfolio_tracker_cron.py --market 港股
+python3.11 portfolio_tracker_cron.py --market 美股
+
+# 强制追踪所有市场
+python3.11 portfolio_tracker_cron.py --all
+```
+
+**定时任务配置**（Crontab）：
+```bash
+# 每天 9:30（A 股/港股开盘）执行
+30 9 * * 1-5 cd /opt/feishu-assistant && /usr/bin/python3.11 portfolio_tracker_cron.py --auto >> logs/tracker_auto.log 2>&1
+
+# 每天 21:30（美股开盘）执行
+30 21 * * 1-5 cd /opt/feishu-assistant && /usr/bin/python3.11 portfolio_tracker_cron.py --auto >> logs/tracker_auto.log 2>&1
+```
+
+**自动模式工作流程**：
+```
+1. 获取所有持仓
+2. 按市场分组（A股/港股/美股）
+3. 检查每个市场是否开市
+4. 只追踪开市且有持仓的市场
+5. 跳过休市的市场
+```
+
+**市场交易时间**：
+- A股：9:30-11:30, 13:00-15:00（周一至周五）
+- 港股：9:30-12:00, 13:00-16:00（周一至周五）
+- 美股：21:30-04:00（北京时间，周一至周五）
 
 ## 技能注册与调用
 
@@ -121,7 +165,8 @@ GITHUB_TOKEN=your_github_token
 ## 服务部署
 
 ### 部署路径
-- 代码目录：`/opt/feishu-assistant/app/`
+- 主程序代码目录：`/opt/feishu-assistant/app/`
+- 定时任务代码目录：`/opt/feishu-assistant/`
 - 日志目录：`/opt/feishu-assistant/logs/`
 
 ### 启动服务
@@ -133,9 +178,13 @@ source .env
 
 ### 部署更新
 ```bash
-# 本地修改后
+# 1. 部署主程序技能文件
 scp skills/stock_skill.py vps:/opt/feishu-assistant/app/skills/
-# 重启服务
+
+# 2. 部署定时任务文件（如有修改）
+scp portfolio_tracker_cron.py vps:/opt/feishu-assistant/
+
+# 3. 重启服务
 ssh vps 'pkill -f "main_v2.py"; sleep 2; cd /opt/feishu-assistant && source .env && /usr/bin/python3.11 app/main_v2.py >> logs/app.log 2>&1 &'
 ```
 
@@ -167,3 +216,7 @@ ssh vps 'pkill -f "main_v2.py"; sleep 2; cd /opt/feishu-assistant && source .env
 ### 3. 日志无输出
 - 检查日志文件权限
 - 确认重定向正确 (`>> logs/app.log 2>&1`)
+
+### 4. 定时任务不执行
+- 检查 crontab 配置：`crontab -l`
+- 检查日志输出：`tail -f /opt/feishu-assistant/logs/tracker_auto.log`
