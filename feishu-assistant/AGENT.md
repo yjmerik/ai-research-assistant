@@ -102,10 +102,14 @@ skill = NewsReadingSkill(config={"kimi_api_key": KIMI_API_KEY})
 result = await skill.execute(action="fetch")
 ```
 
+**飞书调用**：
+- 发送消息：`新闻精读`、`新闻`、`获取新闻`
+- 技能自动获取纽约时报+经济学人新闻，生成精读内容
+
 **播客生成**：
 - 使用火山引擎豆包播客 TTS API
 - 支持双人播客（dayi 先生 + 咪仔同学）
-- 生成音频并保存到本地文件
+- 生成公网音频URL（有效期1小时），并嵌入飞书文档
 - 凭证配置（环境变量）：
   - VOLCENGINE_ACCESS_KEY: 火山引擎 Access Token
   - VOLCENGINE_SECRET_KEY: 火山引擎 Secret Key
