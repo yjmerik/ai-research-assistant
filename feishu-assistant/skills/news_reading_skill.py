@@ -143,48 +143,49 @@ class NewsReadingSkill(BaseSkill):
             )
 
     async def fetch_nyt_news(self) -> List[Dict]:
-        """获取当天新闻 - 使用可靠的数据源"""
-        news_list = []
+        """获取当天新闻 - 使用多种不同类别的数据源"""
+        all_news = []
         today = datetime.now().strftime("%Y-%m-%d")
 
-        print("开始获取实时新闻...")
+        print("开始获取实时新闻（多类别）...")
 
-        # 方法1: BBC News RSS
-        try:
-            print("尝试 BBC News...")
-            news_list = await self._fetch_from_bbc_news()
-            if news_list:
-                print(f"BBC News 获取到 {len(news_list)} 条")
-        except Exception as e:
-            print(f"BBC News 获取失败: {e}")
+        # 收集不同类别的新闻
+        sources = [
+            ("BBC World", self._fetch_from_bbc_news),
+            ("Reuters Business", self._fetch_from_reuters_news),
+            ("CNBC", self._fetch_from_cnbc_news),
+            ("Yahoo Finance", self._fetch_from_yahoo_news),
+            ("TechCrunch", self._fetch_from_techcrunch_news),
+        ]
 
-        # 方法2: Reuters RSS
-        if not news_list:
+        for source_name, fetch_func in sources:
             try:
-                print("尝试 Reuters...")
-                news_list = await self._fetch_from_reuters_news()
-                if news_list:
-                    print(f"Reuters 获取到 {len(news_list)} 条")
+                print(f"获取 {source_name}...")
+                news = await fetch_func()
+                if news:
+                    all_news.extend(news)
+                    print(f"{source_name} 获取到 {len(news)} 条")
             except Exception as e:
-                print(f"Reuters 获取失败: {e}")
+                print(f"{source_name} 获取失败: {e}")
 
-        # 方法3: Al Jazeera RSS
-        if not news_list:
-            try:
-                print("尝试 Al Jazeera...")
-                news_list = await self._fetch_from_aljazeera_news()
-                if news_list:
-                    print(f"Al Jazeera 获取到 {len(news_list)} 条")
-            except Exception as e:
-                print(f"Al Jazeera 获取失败: {e}")
-
-        # 如果都失败，返回空列表
-        if not news_list:
+        # 如果没有获取到任何新闻
+        if not all_news:
             print("警告: 所有新闻源都获取失败，返回空列表")
             return []
 
+        # 去除重复，按类别分组
+        seen = set()
+        unique_news = []
+        for news in all_news:
+            title = news.get("title", "")[:50]  # 使用前50字符作为去重键
+            if title not in seen:
+                seen.add(title)
+                unique_news.append(news)
+
+        print(f"共获取 {len(unique_news)} 条不同新闻")
+
         # 获取文章正文内容
-        for news in news_list:
+        for news in unique_news:
             if news.get("url") and not news.get("content"):
                 try:
                     content = await self.fetch_article_content(news["url"])
@@ -193,7 +194,7 @@ class NewsReadingSkill(BaseSkill):
                 except Exception as e:
                     print(f"获取文章内容失败: {e}")
 
-        return news_list[:3]
+        return unique_news[:5]
 
     async def _fetch_from_bbc_news(self) -> List[Dict]:
         """从 BBC News 获取新闻"""
@@ -348,10 +349,16 @@ However, some analysts cautioned that the AI boom comes with risks. Competition 
         ]
 
     async def fetch_economist_news(self) -> List[Dict]:
-        """获取商业/财经新闻"""
+        """获取商业/财经新闻 - 现在已在 fetch_nyt_news 中统一获取"""
+        # 新闻已在 fetch_nyt_news 中统一获取不同类别
+        # 这里返回空列表避免重复
+        return []
+
+    async def _old_economist_news(self) -> List[Dict]:
+        """保留旧方法（已废弃）"""
         news_list = []
 
-        print("开始获取财经新闻...")
+        print("开始获取财经新闻（备用）...")
 
         # 方法1: CNBC RSS
         try:
@@ -397,7 +404,7 @@ However, some analysts cautioned that the AI boom comes with risks. Competition 
                 except Exception as e:
                     print(f"获取文章内容失败: {e}")
 
-        return news_list[:3]
+        return news_list[:5]
 
     async def _fetch_from_cnbc_news(self) -> List[Dict]:
         """从 CNBC 获取新闻"""
