@@ -748,13 +748,8 @@ The fundamental question remains unresolved: how should societies balance the tr
 
         message_text = "\n".join(content)
 
-        # 发送飞书消息
-        feishu_open_id = os.environ.get("FEISHU_USER_OPEN_ID")
-        if feishu_open_id:
-            try:
-                await self.send_feishu_message(feishu_open_id, message_text)
-            except Exception as e:
-                print(f"发送失败: {e}")
+        # 注意：不再直接发送消息，由 main_v2.py 通过 SkillResult 统一发送
+        # 避免重复发送两条消息
 
         return message_text
 
