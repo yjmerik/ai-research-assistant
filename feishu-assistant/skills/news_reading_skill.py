@@ -143,152 +143,154 @@ class NewsReadingSkill(BaseSkill):
             )
 
     async def fetch_nyt_news(self) -> List[Dict]:
-        """获取当天新闻 - 使用多种数据源"""
+        """获取当天新闻 - 使用可靠的数据源"""
         news_list = []
         today = datetime.now().strftime("%Y-%m-%d")
 
-        # 方法1: 尝试从 Bing News 获取新闻
+        print("开始获取实时新闻...")
+
+        # 方法1: BBC News RSS
         try:
-            news_list = await self._fetch_from_bing_news()
+            print("尝试 BBC News...")
+            news_list = await self._fetch_from_bbc_news()
+            if news_list:
+                print(f"BBC News 获取到 {len(news_list)} 条")
         except Exception as e:
-            print(f"Bing News 获取失败: {e}")
+            print(f"BBC News 获取失败: {e}")
 
-        # 方法2: 如果 Bing 失败，使用 Google News RSS
+        # 方法2: Reuters RSS
         if not news_list:
             try:
-                news_list = await self._fetch_from_google_news()
+                print("尝试 Reuters...")
+                news_list = await self._fetch_from_reuters_news()
+                if news_list:
+                    print(f"Reuters 获取到 {len(news_list)} 条")
             except Exception as e:
-                print(f"Google News 获取失败: {e}")
+                print(f"Reuters 获取失败: {e}")
 
-        # 方法3: 使用 Qveris 搜索获取新闻
+        # 方法3: Al Jazeera RSS
         if not news_list:
             try:
-                news_list = await self._fetch_from_qveris_search()
+                print("尝试 Al Jazeera...")
+                news_list = await self._fetch_from_aljazeera_news()
+                if news_list:
+                    print(f"Al Jazeera 获取到 {len(news_list)} 条")
             except Exception as e:
-                print(f"Qveris 搜索获取失败: {e}")
+                print(f"Al Jazeera 获取失败: {e}")
 
-        # 如果都失败，使用预设新闻但标记日期
+        # 如果都失败，返回空列表
         if not news_list:
-            print("所有数据源都失败，使用预设新闻")
-            news_list = self.get_default_nyt_news()
-            # 更新日期为当天
-            for news in news_list:
-                news["published_date"] = today
+            print("警告: 所有新闻源都获取失败，返回空列表")
+            return []
 
         # 获取文章正文内容
         for news in news_list:
             if news.get("url") and not news.get("content"):
-                content = await self.fetch_article_content(news["url"])
-                if content:
-                    news["content"] = content
+                try:
+                    content = await self.fetch_article_content(news["url"])
+                    if content:
+                        news["content"] = content
+                except Exception as e:
+                    print(f"获取文章内容失败: {e}")
 
         return news_list[:3]
 
-    async def _fetch_from_bing_news(self) -> List[Dict]:
-        """从 Bing News 获取新闻"""
+    async def _fetch_from_bbc_news(self) -> List[Dict]:
+        """从 BBC News 获取新闻"""
         news_list = []
         try:
             async with httpx.AsyncClient() as client:
-                # 使用 Bing News RSS
-                url = "https://www.bing.com/news/search?q=latest+news&format=rss"
+                url = "http://feeds.bbci.co.uk/news/world/rss.xml"
                 headers = {"User-Agent": "Mozilla/5.0"}
                 resp = await client.get(url, headers=headers, timeout=15)
 
                 if resp.status_code == 200:
                     import xml.etree.ElementTree as ET
-                    root = ET.fromstring(resp.text)
-                    for item in root.findall(".//item")[:3]:
+                    root = ET.fromstring(resp.text.encode('utf-8'))
+                    for item in root.findall(".//item")[:5]:
                         title = item.findtext("title", "")
                         link = item.findtext("link", "")
                         desc = item.findtext("description", "")
-                        # 清理 HTML 标签
                         import re
-                        desc = re.sub(r'<[^>]+>', '', desc)
+                        desc = re.sub(r'<[^>]+>', '', desc) if desc else ""
 
                         if title and link:
                             news_list.append({
-                                "source": "Bing News",
+                                "source": "BBC News",
                                 "title": title,
                                 "abstract": desc[:500] if desc else "",
                                 "url": link,
                                 "published_date": datetime.now().strftime("%Y-%m-%d")
                             })
         except Exception as e:
-            print(f"Bing News error: {e}")
+            print(f"BBC News error: {e}")
 
         return news_list
 
-    async def _fetch_from_google_news(self) -> List[Dict]:
-        """从 Google News 获取新闻"""
+    async def _fetch_from_reuters_news(self) -> List[Dict]:
+        """从 Reuters 获取新闻"""
         news_list = []
         try:
             async with httpx.AsyncClient() as client:
-                # 使用 Google News RSS
-                url = "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx1YlY4U0FtVnVHZ0pWVXlnQVAB?hl=en-US&gl=US"
+                url = "https://www.reutersagency.com/feed/?best-topics=business-finance"
                 headers = {"User-Agent": "Mozilla/5.0"}
                 resp = await client.get(url, headers=headers, timeout=15)
 
                 if resp.status_code == 200:
                     import xml.etree.ElementTree as ET
-                    root = ET.fromstring(resp.text)
-                    for item in root.findall(".//item")[:3]:
+                    try:
+                        root = ET.fromstring(resp.text.encode('utf-8'))
+                    except:
+                        return news_list
+                    for item in root.findall(".//item")[:5]:
                         title = item.findtext("title", "")
                         link = item.findtext("link", "")
-                        pub_date = item.findtext("pubDate", "")
+                        desc = item.findtext("description", "")
+                        import re
+                        desc = re.sub(r'<[^>]+>', '', desc) if desc else ""
 
                         if title and link:
                             news_list.append({
-                                "source": "Google News",
+                                "source": "Reuters",
                                 "title": title,
-                                "abstract": "",
+                                "abstract": desc[:500] if desc else "",
                                 "url": link,
                                 "published_date": datetime.now().strftime("%Y-%m-%d")
                             })
         except Exception as e:
-            print(f"Google News error: {e}")
+            print(f"Reuters error: {e}")
 
         return news_list
 
-    async def _fetch_from_qveris_search(self) -> List[Dict]:
-        """使用 Qveris 搜索获取新闻"""
+    async def _fetch_from_aljazeera_news(self) -> List[Dict]:
+        """从 Al Jazeera 获取新闻"""
         news_list = []
-        qveris_api_key = os.environ.get("QVERIS_API_KEY")
-
-        if not qveris_api_key:
-            return news_list
-
         try:
-            import json
-            # 搜索当天热门新闻
-            search_queries = [
-                "top business news today",
-                "technology news today",
-                "global economy news today"
-            ]
-
             async with httpx.AsyncClient() as client:
-                for query in search_queries[:1]:  # 只搜索一次
-                    url = f"https://qveris.ai/api/v1/tools/execute?tool_id=web_search"
-                    headers = {
-                        "Authorization": f"Bearer {qveris_api_key}",
-                        "Content-Type": "application/json"
-                    }
-                    payload = {"query": query, "max_results": 3}
+                url = "https://www.aljazeera.com/xml/rss/all.xml"
+                headers = {"User-Agent": "Mozilla/5.0"}
+                resp = await client.get(url, headers=headers, timeout=15)
 
-                    resp = await client.post(url, json=payload, headers=headers, timeout=30)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        results = data.get("results", [])
-                        for item in results:
+                if resp.status_code == 200:
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(resp.text.encode('utf-8'))
+                    for item in root.findall(".//item")[:5]:
+                        title = item.findtext("title", "")
+                        link = item.findtext("link", "")
+                        desc = item.findtext("description", "")
+                        import re
+                        desc = re.sub(r'<[^>]+>', '', desc) if desc else ""
+
+                        if title and link:
                             news_list.append({
-                                "source": "Web Search",
-                                "title": item.get("title", ""),
-                                "abstract": item.get("snippet", ""),
-                                "url": item.get("url", ""),
+                                "source": "Al Jazeera",
+                                "title": title,
+                                "abstract": desc[:500] if desc else "",
+                                "url": link,
                                 "published_date": datetime.now().strftime("%Y-%m-%d")
                             })
         except Exception as e:
-            print(f"Qveris search error: {e}")
+            print(f"Al Jazeera error: {e}")
 
         return news_list
 
@@ -346,37 +348,152 @@ However, some analysts cautioned that the AI boom comes with risks. Competition 
         ]
 
     async def fetch_economist_news(self) -> List[Dict]:
-        """获取经济学人/商业新闻"""
+        """获取商业/财经新闻"""
         news_list = []
 
-        # 方法1: 尝试从 Economist 获取
-        try:
-            news_list = await self._fetch_from_economist_rss()
-        except Exception as e:
-            print(f"Economist RSS 获取失败: {e}")
+        print("开始获取财经新闻...")
 
-        # 方法2: 使用 Bing News 商业新闻
+        # 方法1: CNBC RSS
+        try:
+            print("尝试 CNBC...")
+            news_list = await self._fetch_from_cnbc_news()
+            if news_list:
+                print(f"CNBC 获取到 {len(news_list)} 条")
+        except Exception as e:
+            print(f"CNBC 获取失败: {e}")
+
+        # 方法2: Yahoo Finance
         if not news_list:
             try:
-                news_list = await self._fetch_business_news()
+                print("尝试 Yahoo Finance...")
+                news_list = await self._fetch_from_yahoo_news()
+                if news_list:
+                    print(f"Yahoo Finance 获取到 {len(news_list)} 条")
             except Exception as e:
-                print(f"商业新闻获取失败: {e}")
+                print(f"Yahoo Finance 获取失败: {e}")
 
-        # 如果都失败，使用预设新闻但更新日期
+        # 方法3: CNBC Technology
         if not news_list:
-            print("所有数据源都失败，使用预设新闻")
-            news_list = self.get_default_economist_news()
-            for news in news_list:
-                news["published_date"] = datetime.now().strftime("%Y-%m-%d")
+            try:
+                print("尝试 TechCrunch...")
+                news_list = await self._fetch_from_techcrunch_news()
+                if news_list:
+                    print(f"TechCrunch 获取到 {len(news_list)} 条")
+            except Exception as e:
+                print(f"TechCrunch 获取失败: {e}")
+
+        # 如果都失败，返回空列表
+        if not news_list:
+            print("警告: 所有财经新闻源都获取失败，返回空列表")
+            return []
 
         # 获取文章正文内容
         for news in news_list:
             if news.get("url") and not news.get("content"):
-                content = await self.fetch_article_content(news["url"])
-                if content:
-                    news["content"] = content
+                try:
+                    content = await self.fetch_article_content(news["url"])
+                    if content:
+                        news["content"] = content
+                except Exception as e:
+                    print(f"获取文章内容失败: {e}")
 
         return news_list[:3]
+
+    async def _fetch_from_cnbc_news(self) -> List[Dict]:
+        """从 CNBC 获取新闻"""
+        news_list = []
+        try:
+            async with httpx.AsyncClient() as client:
+                url = "https://www.cnbc.com/id/100003114/device/rss/rss.html"
+                headers = {"User-Agent": "Mozilla/5.0"}
+                resp = await client.get(url, headers=headers, timeout=15)
+
+                if resp.status_code == 200:
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(resp.text.encode('utf-8'))
+                    for item in root.findall(".//item")[:5]:
+                        title = item.findtext("title", "")
+                        link = item.findtext("link", "")
+                        desc = item.findtext("description", "")
+                        import re
+                        desc = re.sub(r'<[^>]+>', '', desc) if desc else ""
+
+                        if title and link:
+                            news_list.append({
+                                "source": "CNBC",
+                                "title": title,
+                                "abstract": desc[:500] if desc else "",
+                                "url": link,
+                                "published_date": datetime.now().strftime("%Y-%m-%d")
+                            })
+        except Exception as e:
+            print(f"CNBC error: {e}")
+
+        return news_list
+
+    async def _fetch_from_yahoo_news(self) -> List[Dict]:
+        """从 Yahoo Finance 获取新闻"""
+        news_list = []
+        try:
+            async with httpx.AsyncClient() as client:
+                url = "https://finance.yahoo.com/news/rssindex"
+                headers = {"User-Agent": "Mozilla/5.0"}
+                resp = await client.get(url, headers=headers, timeout=15)
+
+                if resp.status_code == 200:
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(resp.text.encode('utf-8'))
+                    for item in root.findall(".//item")[:5]:
+                        title = item.findtext("title", "")
+                        link = item.findtext("link", "")
+                        desc = item.findtext("description", "")
+                        import re
+                        desc = re.sub(r'<[^>]+>', '', desc) if desc else ""
+
+                        if title and link:
+                            news_list.append({
+                                "source": "Yahoo Finance",
+                                "title": title,
+                                "abstract": desc[:500] if desc else "",
+                                "url": link,
+                                "published_date": datetime.now().strftime("%Y-%m-%d")
+                            })
+        except Exception as e:
+            print(f"Yahoo Finance error: {e}")
+
+        return news_list
+
+    async def _fetch_from_techcrunch_news(self) -> List[Dict]:
+        """从 TechCrunch 获取新闻"""
+        news_list = []
+        try:
+            async with httpx.AsyncClient() as client:
+                url = "https://techcrunch.com/feed/"
+                headers = {"User-Agent": "Mozilla/5.0"}
+                resp = await client.get(url, headers=headers, timeout=15)
+
+                if resp.status_code == 200:
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(resp.text.encode('utf-8'))
+                    for item in root.findall(".//item")[:5]:
+                        title = item.findtext("title", "")
+                        link = item.findtext("link", "")
+                        desc = item.findtext("description", "")
+                        import re
+                        desc = re.sub(r'<[^>]+>', '', desc) if desc else ""
+
+                        if title and link:
+                            news_list.append({
+                                "source": "TechCrunch",
+                                "title": title,
+                                "abstract": desc[:500] if desc else "",
+                                "url": link,
+                                "published_date": datetime.now().strftime("%Y-%m-%d")
+                            })
+        except Exception as e:
+            print(f"TechCrunch error: {e}")
+
+        return news_list
 
     async def _fetch_from_economist_rss(self) -> List[Dict]:
         """从 Economist RSS 获取新闻"""
