@@ -21,7 +21,9 @@ feishu-assistant/
 │   ├── chat_skill.py      # 对话技能
 │   ├── stock_skill.py     # 股票分析技能 (核心)
 │   ├── portfolio_skill.py       # 持仓管理技能
-│   └── portfolio_tracker_skill.py # 持仓追踪技能
+│   ├── portfolio_tracker_skill.py # 持仓追踪技能
+│   ├── news_reading_skill.py   # 新闻精读技能
+│   └── evo_agent_skill.py      # 自主进化技能（元技能）
 ├── portfolio_tracker_cron.py  # 持仓追踪定时任务
 └── .env                   # 环境变量配置
 ```
@@ -184,6 +186,48 @@ python3.11 portfolio_tracker_cron.py --all
 - 港股：9:30-12:00, 13:00-16:00（周一至周五）
 - 美股：21:30-04:00（北京时间，周一至周五）
 
+### 7. evo_agent_skill.py - 自主进化技能（元技能）
+
+**功能**：
+- 根据用户需求自动创建新技能
+- 支持 Kimi K2.5 和 MiniMax M2.5 大模型
+- 实现"先确认设计再生成代码"模式
+- 动态 Skill 注册机制
+
+**技术实现**：
+- 使用 `exec()` 动态创建 Skill 类
+- 大模型生成 Skill 架构设计和实现代码
+- 支持 Open-Meteo 免费天气 API
+- LLM 实时翻译中文城市名为英文
+
+**使用方式**：
+```python
+skill = EvoAgentSkill(config={
+    "llm_api_key": KIMI_API_KEY,
+    "minimax_api_key": MINIMAX_API_KEY,
+    "default_model": "kimi_k2.5"
+})
+
+# 步骤1: 创建技能
+result = await skill.execute(requirement="帮我创建一个查询天气的技能")
+
+# 步骤2: 确认设计
+result = await skill.execute(requirement="确认", confirm_design=True, design_id="xxx")
+```
+
+**飞书调用**：
+1. 发送 `/evo 帮我创建一个查询天气的技能`
+2. 系统返回设计文档，包含 design_id
+3. 用户发送 `确认 {design_id}` 确认设计
+4. 系统生成代码并注册技能
+
+**支持的模型**：
+- Kimi K2.5（默认）：`kimi_k2.5`
+- MiniMax M2.5：在需求中指定 "用 minimax"
+
+**预置实现**：
+- 天气查询：使用 Open-Meteo 免费 API，LLM 翻译城市名
+
 ## 技能注册与调用
 
 ### 注册技能 (main_v2.py)
@@ -206,6 +250,7 @@ result = await skill.execute(stock_name="苹果", market="美股")
 | `/g` | GitHub 趋势 |
 | `/p` | 论文搜索 |
 | `/po` | 持仓查询 |
+| `/e` | 创建新技能 |
 | `/h` | 帮助 |
 
 ## 环境变量 (.env)
@@ -214,6 +259,7 @@ result = await skill.execute(stock_name="苹果", market="美股")
 FEISHU_APP_ID=your_app_id
 FEISHU_APP_SECRET=your_app_secret
 KIMI_API_KEY=your_kimi_api_key
+MINIMAX_API_KEY=your_minimax_api_key
 QVERIS_API_KEY=your_qveris_api_key
 GITHUB_TOKEN=your_github_token
 ```
