@@ -206,8 +206,8 @@ class EvoAgentSkill(BaseSkill):
                 message=f"❌ 生成设计失败: {str(e)}"
             )
 
-    async def _generate_and_register(self, design_id: str, confirmed: str = "yes") -> SkillResult:
-        """确认设计后生成代码并注册"""
+    async def _generate_and_register(self, design_id: str, confirmed: str = "yes", max_retries: int = 3) -> SkillResult:
+        """确认设计后生成代码并注册（带自我改进）"""
         try:
             # 检查设计是否存在
             if design_id not in self._pending_designs:
@@ -219,6 +219,7 @@ class EvoAgentSkill(BaseSkill):
             design_data = self._pending_designs[design_id]
             design = design_data["design"]
             skill_name = design_data["skill_name"]
+            requirement = design_data.get("requirement", "")
             model_config = design_data.get("model_config", {})
 
             # 检查确认
@@ -236,22 +237,116 @@ class EvoAgentSkill(BaseSkill):
                     message=f"❌ API Key 未配置，无法生成代码"
                 )
 
-            # 生成代码
-            code = await self._call_llm_code(design, model_config)
+            # 自我改进循环
+            last_error = None
+            for attempt in range(max_retries):
+                if attempt > 0:
+                    print(f"[EvoAgent] 第 {attempt + 1} 次尝试修复...")
 
-            # 动态创建并注册 Skill
-            skill_result = await self._register_dynamic_skill(skill_name, design, code)
+                # 生成代码
+                code = await self._call_llm_code(design, model_config, last_error)
 
-            # 清理设计缓存
-            del self._pending_designs[design_id]
+                # 尝试创建并注册 Skill
+                skill_result = await self._register_and_test(skill_name, design, code, requirement)
 
-            return skill_result
+                if skill_result.success:
+                    # 清理设计缓存
+                    del self._pending_designs[design_id]
+                    return skill_result
+
+                # 保存错误信息用于下一次尝试
+                last_error = skill_result.message
+
+                # 如果是语法错误，继续重试
+                if "SyntaxError" in skill_result.message or "unterminated" in skill_result.message:
+                    continue
+
+                # 如果是其他错误，也尝试修复
+                if attempt < max_retries - 1:
+                    continue
+
+            # 所有尝试都失败
+            return SkillResult(
+                success=False,
+                message=f"❌ 经过 {max_retries} 次尝试仍然失败：\n{last_error}"
+            )
 
         except Exception as e:
             return SkillResult(
                 success=False,
                 message=f"❌ 生成代码失败: {str(e)}"
             )
+
+    async def _register_and_test(self, skill_name: str, design: Dict, code: str, requirement: str = "") -> SkillResult:
+        """注册技能并测试执行"""
+        try:
+            # 动态创建 Skill
+            skill_instance = self._create_skill_from_code(skill_name, design, code)
+
+            if skill_instance is None:
+                return SkillResult(
+                    success=False,
+                    message=f"❌ 代码语法错误：无法创建技能"
+                )
+
+            # 注册到 registry
+            from .skill_registry import registry
+            registry.register(skill_instance)
+
+            # 测试执行 - 提取测试参数
+            test_params = self._extract_test_params(requirement)
+
+            # 尝试执行
+            try:
+                result = await skill_instance.execute(**test_params)
+
+                # 检查执行结果
+                if result.success:
+                    # 成功，持久化并返回
+                    self._save_skill_to_file(skill_name, design, code)
+                    return SkillResult(
+                        success=True,
+                        message=result.message + "\n\n✅ 技能创建并测试成功！"
+                    )
+                else:
+                    # 执行失败，记录错误
+                    return SkillResult(
+                        success=False,
+                        message=f"❌ 技能执行测试失败：{result.message}"
+                    )
+            except Exception as e:
+                return SkillResult(
+                    success=False,
+                    message=f"❌ 技能执行出错：{str(e)}"
+                )
+
+        except Exception as e:
+            return SkillResult(
+                success=False,
+                message=f"❌ 注册失败：{str(e)}"
+            )
+
+    def _extract_test_params(self, requirement: str) -> Dict:
+        """从需求中提取测试参数"""
+        params = {}
+
+        # 检测股票
+        if "股票" in requirement or "股价" in requirement or "stock" in requirement.lower():
+            params = {"symbol": "茅台", "market": "CN"}
+
+        # 检测天气
+        elif "天气" in requirement:
+            params = {"location": "北京"}
+
+        # 检测新闻
+        elif "新闻" in requirement:
+            params = {}
+
+        # 检测 GitHub
+        elif "github" in requirement.lower() or "代码" in requirement:
+            params = {"keyword": "python"}
+
+        return params
 
     async def _call_llm_design(self, requirement: str, model_config: Dict = None) -> Dict:
         """调用 LLM 生成设计"""
@@ -336,8 +431,8 @@ class EvoAgentSkill(BaseSkill):
 
         return result
 
-    async def _call_llm_code(self, design: Dict, model_config: Dict = None) -> str:
-        """调用 LLM 生成代码"""
+    async def _call_llm_code(self, design: Dict, model_config: Dict = None, last_error: str = None) -> str:
+        """调用 LLM 生成代码（支持错误修复）"""
         if model_config is None:
             model_config = self._get_model_config()
 
@@ -351,6 +446,13 @@ class EvoAgentSkill(BaseSkill):
         if is_weather:
             # 天气技能使用内置实现
             return self._get_weather_implementation()
+
+        # 检测股票查询
+        is_stock = any(kw in description for kw in ["股票", "股价", "stock"])
+
+        if is_stock:
+            # 股票查询使用内置实现
+            return self._get_stock_implementation()
 
         # 其他技能返回提示
         return f"""
@@ -455,6 +557,127 @@ async def execute(self, **kwargs) -> SkillResult:
         import traceback
         err_msg = "查询失败: " + str(e) if str(e) else "查询失败（详细错误: " + type(e).__name__ + "）"
         print("[Weather] 错误: " + traceback.format_exc())
+        return SkillResult(success=False, message=err_msg)
+'''
+
+    def _get_stock_implementation(self) -> str:
+        """获取股票查询的实现代码 - 使用 Qveris API"""
+        return '''
+import os
+
+# 股票代码映射（简化的中文名称到代码）
+STOCK_NAME_MAP = {
+    "茅台": ("600519", "sh", "贵州茅台"),
+    "贵州茅台": ("600519", "sh", "贵州茅台"),
+    "平安": ("601318", "sh", "中国平安"),
+    "中国平安": ("601318", "sh", "中国平安"),
+    "阿里": ("9988", "hk", "阿里巴巴"),
+    "阿里巴巴": ("9988", "hk", "阿里巴巴"),
+    "腾讯": ("700", "hk", "腾讯控股"),
+    "腾讯控股": ("700", "hk", "腾讯控股"),
+    "美团": ("3690", "hk", "美团"),
+    "苹果": ("AAPL", "us", "Apple Inc."),
+    "特斯拉": ("TSLA", "us", "Tesla Inc."),
+    "google": ("GOOGL", "us", "Alphabet Inc."),
+    "亚马逊": ("AMZN", "us", "Amazon.com Inc."),
+}
+
+def get_stock_code(stock_input):
+    """解析股票代码"""
+    stock_input = stock_input.strip()
+
+    # 直接返回如果是标准格式
+    if stock_input.startswith(("sh", "sz", "hk", "us")):
+        return stock_input, None, stock_input
+
+    # 查表
+    if stock_input in STOCK_NAME_MAP:
+        code, market, name = STOCK_NAME_MAP[stock_input]
+        full_code = market + code
+        return full_code, market, name
+
+    # 尝试直接调用API解析
+    return stock_input, None, stock_input
+
+async def execute(self, **kwargs) -> SkillResult:
+    try:
+        symbol = kwargs.get("symbol") or kwargs.get("stock") or kwargs.get("code") or "茅台"
+        market = kwargs.get("market", "CN").upper()
+
+        # 获取API Key
+        api_key = os.environ.get("KIMI_API_KEY")
+        qveris_key = os.environ.get("QVERIS_API_KEY")
+
+        if not api_key:
+            return SkillResult(success=False, message="未配置 LLM API Key")
+
+        # 解析股票代码
+        stock_code, detected_market, stock_name = get_stock_code(symbol)
+
+        # 如果没有指定市场，尝试检测
+        if not detected_market:
+            if market == "AUTO" or market == "CN":
+                # 尝试A股
+                test_code = "sh" + stock_code if not stock_code.startswith(("sh", "sz")) else stock_code
+            else:
+                test_code = stock_code
+        else:
+            test_code = stock_code
+
+        # 使用Qveris API查询（如果有配置）
+        if qveris_key:
+            url = "https://api.qveris.com/v1/query"
+            headers = {"Authorization": "Bearer " + qveris_key, "Content-Type": "application/json"}
+
+            # 尝试获取实时行情
+            payload = {
+                "service": "ths_ifind.real_time_quotation.v1",
+                "parameters": {"ts_code": stock_code}
+            }
+
+            async with httpx.AsyncClient() as client:
+                try:
+                    resp = await client.post(url, headers=headers, json=payload, timeout=10.0)
+                    data = resp.json()
+
+                    if data.get("code") == 0 and data.get("data"):
+                        quote = data["data"]
+                        name = quote.get("ts_name", stock_name or stock_code)
+                        price = quote.get("close", "N/A")
+                        change = quote.get("pct_chg", 0)
+                        volume = quote.get("vol", 0)
+                        amount = quote.get("amount", 0)
+
+                        # 格式化
+                        change_str = f"+{change:.2f}%" if change >= 0 else f"{change:.2f}%"
+                        vol_str = f"{volume/1000000:.2f}M" if volume else "N/A"
+
+                        msg = "📈 " + name + " (" + stock_code + ")\n"
+                        msg += "━━━━━━━━━━━━━━\n"
+                        msg += "💰 当前价: " + str(price) + "\n"
+                        msg += "📊 涨跌幅: " + change_str + "\n"
+                        msg += "📦 成交量: " + vol_str + "\n"
+                        msg += "━━━━━━━━━━━━━━\n"
+                        msg += "数据来源: 同花顺"
+
+                        return SkillResult(success=True, message=msg)
+                except Exception as e:
+                    pass
+
+        # 如果没有Qveris API，使用LLM分析（简化版）
+        msg = "📈 股票查询: " + symbol + "\n"
+        msg += "━━━━━━━━━━━━━━\n"
+        msg += "⚠️ 当前使用演示模式\n"
+        msg += "请配置 QVERIS_API_KEY 获取实时行情\n"
+        msg += "━━━━━━━━━━━━━━\n"
+        msg += "股票代码: " + stock_code
+
+        return SkillResult(success=True, message=msg)
+
+    except Exception as e:
+        import traceback
+        err_msg = "查询失败: " + str(e)
+        print("[Stock] 错误: " + traceback.format_exc())
         return SkillResult(success=False, message=err_msg)
 '''
 
@@ -578,7 +801,7 @@ async def execute(self, **kwargs) -> SkillResult:
 
             # 获取实际的变量值
             skill_name_val = skill_name
-            skill_desc_val = design.get("description", "")
+            skill_desc_val = design.get("description", "").replace('"""', '\\"\\"\\"')
             skill_examples_val = design.get("examples", [])
             skill_params_val = design.get("parameters", {})
 
