@@ -25,6 +25,7 @@ from skills.stock_skill import StockSkill
 from skills.portfolio_skill import PortfolioSkill
 from skills.portfolio_tracker_skill import PortfolioTrackerSkill
 from skills.news_reading_skill import NewsReadingSkill
+from skills.evo_agent_skill import EvoAgentSkill
 
 
 # ============ 配置 ============
@@ -53,7 +54,8 @@ def init_components():
     registry.register(PortfolioSkill(config={"kimi_api_key": KIMI_API_KEY}))
     registry.register(PortfolioTrackerSkill(config={"kimi_api_key": KIMI_API_KEY}))
     registry.register(NewsReadingSkill(config={"kimi_api_key": KIMI_API_KEY}))
-    
+    registry.register(EvoAgentSkill(config={"llm_api_key": KIMI_API_KEY}))
+
     print(f"\n✅ 已注册 {len(registry.list_skills())} 个技能:")
     for name in registry.list_skills():
         print(f"   - {name}")
@@ -188,6 +190,16 @@ class MessageProcessor:
                 "params": {"action": "track", "user_id": user_id},
                 "shortcuts": ["tr", "tk"]
             },
+            "/evo": {
+                "skill": "evo_agent",
+                "params": {"requirement": args or ""},
+                "shortcuts": ["e", "ev"]
+            },
+            "/create": {
+                "skill": "evo_agent",
+                "params": {"requirement": args or ""},
+                "shortcuts": ["cr"]
+            },
             "/追踪": {
                 "skill": "track_portfolio",
                 "params": {"action": "track", "user_id": user_id},
@@ -239,6 +251,7 @@ class MessageProcessor:
                     "• /g /gh → GitHub趋势\n" +
                     "• /p /pa → 论文搜索\n" +
                     "• /po /pt → 持仓查询\n" +
+                    "• /e /evo → 创建新技能\n" +
                     "• /h → 帮助\n" +
                     "• /s /st → 状态\n" +
                     "• /c /cl → 聊天/清除"
@@ -246,7 +259,15 @@ class MessageProcessor:
     
     async def _handle_natural_language(self, text: str, session: Dict) -> SkillResult:
         """处理自然语言"""
-        
+
+        # 检查是否是确认设计（格式：确认 {design_id}）
+        import re
+        confirm_match = re.match(r"确认\s+([a-f0-9]+)", text, re.IGNORECASE)
+        if confirm_match:
+            design_id = confirm_match.group(1)
+            skill = registry.get("evo_agent")
+            return await skill.execute(requirement="", confirm_design=True, design_id=design_id)
+
         # 先检查是否是持仓查询
         if any(kw in text for kw in ["持仓", "我的股票", "持仓情况", "查看持仓"]):
             skill = registry.get("manage_portfolio")

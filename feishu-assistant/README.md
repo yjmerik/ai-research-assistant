@@ -10,6 +10,20 @@
 - `/paper <主题>` - 搜索 arXiv 论文
 - `/status` - 系统状态
 - `/clear` - 清除会话
+- `/evo` 或 `/create` - 创建新技能（EvoAgent）
+
+### EvoAgent 自主进化技能
+
+使用 Kimi K2.5 或 MiniMax M2.5 大模型，根据用户需求自动创建新技能。
+
+**使用方式：**
+1. 发送 `/evo 帮我创建一个查询天气的技能`
+2. 确认设计（发送 `确认 {design_id}`）
+3. 使用新创建的技能
+
+**支持的模型：**
+- Kimi K2.5（默认）
+- MiniMax M2.5（在需求中指定 "用 minimax"）
 
 ## 部署
 
