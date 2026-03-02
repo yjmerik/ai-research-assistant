@@ -44,7 +44,7 @@ def init_components():
     """初始化所有组件（同步版本）"""
     # 1. 初始化意图识别器
     intent_recognizer = IntentRecognizer(api_key=KIMI_API_KEY)
-    
+
     # 2. 注册所有技能
     registry.register(MarketSkill())
     registry.register(GitHubSkill(config={"github_token": GITHUB_TOKEN}))
@@ -56,11 +56,49 @@ def init_components():
     registry.register(NewsReadingSkill(config={"kimi_api_key": KIMI_API_KEY}))
     registry.register(EvoAgentSkill(config={"llm_api_key": KIMI_API_KEY}))
 
+    # 3. 加载持久化的自动生成技能
+    _load_persisted_skills()
+
     print(f"\n✅ 已注册 {len(registry.list_skills())} 个技能:")
     for name in registry.list_skills():
         print(f"   - {name}")
-    
+
     return intent_recognizer
+
+
+def _load_persisted_skills():
+    """加载持久化的自动生成技能"""
+    try:
+        from skills.evo_agent_skill import EvoAgentSkill
+
+        # 加载已保存的技能
+        persisted_skills = EvoAgentSkill.load_persisted_skills()
+
+        if not persisted_skills:
+            return
+
+        # 创建 EvoAgentSkill 实例用于创建技能
+        evo_skill = EvoAgentSkill(config={"llm_api_key": KIMI_API_KEY})
+
+        for skill_name, data in persisted_skills.items():
+            try:
+                design = data.get("design", {})
+                code = data.get("code", "")
+
+                if not design or not code:
+                    continue
+
+                # 创建技能实例
+                skill_instance = evo_skill._create_skill_from_code(skill_name, design, code)
+
+                if skill_instance:
+                    registry.register(skill_instance)
+                    print(f"   ✅ 已加载技能: {skill_name}")
+            except Exception as e:
+                print(f"   ❌ 加载技能失败 {skill_name}: {e}")
+
+    except Exception as e:
+        print(f"[EvoAgent] 加载持久化技能失败: {e}")
 
 
 # ============ 消息处理 ============

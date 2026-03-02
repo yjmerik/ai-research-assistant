@@ -21,6 +21,13 @@
 2. 确认设计（发送 `确认 {design_id}`）
 3. 使用新创建的技能
 
+**查询已保存的技能：**
+- 发送 `/evo list` 或 `/evo 列出技能`
+
+**持久化：**
+- 技能保存到 `/opt/feishu-assistant/data/auto_skills.json`
+- 重启后自动加载已保存的技能
+
 **支持的模型：**
 - Kimi K2.5（默认）
 - MiniMax M2.5（在需求中指定 "用 minimax"）

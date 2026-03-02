@@ -12,6 +12,10 @@ from openai import AsyncOpenAI
 from .base_skill import BaseSkill, SkillResult
 
 
+# 持久化存储路径
+SKILLS_STORAGE_FILE = "/opt/feishu-assistant/data/auto_skills.json"
+
+
 # 模型配置
 MODEL_CONFIGS = {
     "kimi_k2.5": {
@@ -135,6 +139,11 @@ class EvoAgentSkill(BaseSkill):
             design_id: 设计ID（确认时使用）
             model: 使用的模型 (kimi_k2.5 / minimax_m2.5)
         """
+
+        # 检查是否是查询技能列表
+        req = requirement.strip().lower() if requirement else ""
+        if req in ["list", "列表", "查看技能", "列出技能", "查询技能"]:
+            return SkillResult(success=True, message=self.list_persisted_skills())
 
         # 获取模型配置
         model_config = self._get_model_config(model, requirement)
@@ -465,12 +474,15 @@ async def execute(self, **kwargs) -> SkillResult:
             from .skill_registry import registry
             registry.register(skill_instance)
 
+            # 持久化保存
+            self._save_skill_to_file(skill_name, design, code)
+
             return SkillResult(
                 success=True,
                 message=f"✅ 技能 '{skill_name}' 已创建并注册！\n\n"
                         f"技能描述: {design.get('description', '')}\n"
                         f"现在你可以使用这个技能了。\n\n"
-                        f"生成的代码已保存到内存中（重启后失效）。"
+                        f"技能已持久化保存，重启后仍然有效。"
             )
 
         except Exception as e:
@@ -480,6 +492,68 @@ async def execute(self, **kwargs) -> SkillResult:
                 success=False,
                 message=f"❌ 注册技能失败: {str(e)}"
             )
+
+    def _save_skill_to_file(self, skill_name: str, design: Dict, code: str):
+        """保存技能到文件（持久化）"""
+        try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(SKILLS_STORAGE_FILE), exist_ok=True)
+
+            # 读取现有数据
+            skills = {}
+            if os.path.exists(SKILLS_STORAGE_FILE):
+                with open(SKILLS_STORAGE_FILE, "r", encoding="utf-8") as f:
+                    skills = json.load(f)
+
+            # 添加新技能
+            skills[skill_name] = {
+                "design": design,
+                "code": code,
+                "created_at": str(uuid.uuid4())
+            }
+
+            # 保存
+            with open(SKILLS_STORAGE_FILE, "w", encoding="utf-8") as f:
+                json.dump(skills, f, ensure_ascii=False, indent=2)
+
+            print(f"[EvoAgent] 技能已保存: {skill_name}")
+        except Exception as e:
+            print(f"[EvoAgent] 保存技能失败: {e}")
+
+    @classmethod
+    def load_persisted_skills(cls) -> Dict[str, Dict]:
+        """加载已持久化的技能"""
+        skills = {}
+        try:
+            if os.path.exists(SKILLS_STORAGE_FILE):
+                with open(SKILLS_STORAGE_FILE, "r", encoding="utf-8") as f:
+                    skills = json.load(f)
+                print(f"[EvoAgent] 已加载 {len(skills)} 个持久化技能")
+        except Exception as e:
+            print(f"[EvoAgent] 加载技能失败: {e}")
+        return skills
+
+    def list_persisted_skills(self) -> str:
+        """列出所有已保存的技能"""
+        try:
+            if not os.path.exists(SKILLS_STORAGE_FILE):
+                return "暂无已保存的技能"
+
+            with open(SKILLS_STORAGE_FILE, "r", encoding="utf-8") as f:
+                skills = json.load(f)
+
+            if not skills:
+                return "暂无已保存的技能"
+
+            msg = "📋 已保存的技能列表：\n\n"
+            for name, data in skills.items():
+                desc = data.get("design", {}).get("description", "无描述")
+                msg += f"• {name}\n"
+                msg += f"  {desc}\n\n"
+
+            return msg
+        except Exception as e:
+            return f"查询失败: {str(e)}"
 
     def _create_skill_from_code(self, skill_name: str, design: Dict, code: str):
         """从生成的代码创建 Skill 类"""
