@@ -243,8 +243,8 @@ class EvoAgentSkill(BaseSkill):
                 if attempt > 0:
                     print(f"[EvoAgent] 第 {attempt + 1} 次尝试修复...")
 
-                # 生成代码
-                code = await self._call_llm_code(design, model_config, last_error)
+                # 生成代码（传入requirement用于检测类型）
+                code = await self._call_llm_code(design, model_config, last_error, requirement)
 
                 # 尝试创建并注册 Skill
                 skill_result = await self._register_and_test(skill_name, design, code, requirement)
@@ -339,12 +339,12 @@ class EvoAgentSkill(BaseSkill):
             params = {"location": "北京"}
 
         # 检测新闻
-        elif "新闻" in requirement:
-            params = {}
+        elif "新闻" in requirement or "报告" in requirement:
+            params = {"topic": "人工智能发展趋势"}
 
         # 检测 GitHub
-        elif "github" in requirement.lower() or "代码" in requirement:
-            params = {"keyword": "python"}
+        elif "github" in requirement.lower() or "代码库" in requirement:
+            params = {"keyword": "python", "language": "python"}
 
         return params
 
@@ -431,7 +431,7 @@ class EvoAgentSkill(BaseSkill):
 
         return result
 
-    async def _call_llm_code(self, design: Dict, model_config: Dict = None, last_error: str = None) -> str:
+    async def _call_llm_code(self, design: Dict, model_config: Dict = None, last_error: str = None, requirement: str = "") -> str:
         """调用 LLM 生成代码（支持错误修复）"""
         if model_config is None:
             model_config = self._get_model_config()
@@ -440,19 +440,34 @@ class EvoAgentSkill(BaseSkill):
         parameters = design.get("parameters", {})
         description = design.get("description", "")
 
+        # 同时检查 description 和 requirement
+        search_text = description.lower() + " " + requirement.lower()
+
         # 检查是否为天气相关技能
-        is_weather = any(kw in description.lower() for kw in ["天气", "weather", "温度"])
+        is_weather = any(kw in search_text for kw in ["天气", "weather", "温度"])
 
         if is_weather:
             # 天气技能使用内置实现
             return self._get_weather_implementation()
 
         # 检测股票查询
-        is_stock = any(kw in description for kw in ["股票", "股价", "stock"])
+        is_stock = any(kw in search_text for kw in ["股票", "股价", "stock"])
 
         if is_stock:
             # 股票查询使用内置实现
             return self._get_stock_implementation()
+
+        # 检测新闻相关
+        is_news = any(kw in search_text for kw in ["新闻", "news", "报告", "writer"])
+
+        if is_news:
+            return self._get_news_implementation()
+
+        # 检测 GitHub 相关
+        is_github = any(kw in search_text for kw in ["github", "代码库", "repository", "趋势"])
+
+        if is_github:
+            return self._get_github_implementation()
 
         # 其他技能返回提示
         return f"""
@@ -679,6 +694,89 @@ async def execute(self, **kwargs) -> SkillResult:
         err_msg = "查询失败: " + str(e)
         print("[Stock] 错误: " + traceback.format_exc())
         return SkillResult(success=False, message=err_msg)
+'''
+
+    def _get_news_implementation(self) -> str:
+        """获取新闻写作的实现代码"""
+        return '''
+import os
+
+async def execute(self, **kwargs) -> SkillResult:
+    try:
+        api_key = os.environ.get("KIMI_API_KEY")
+        if not api_key:
+            return SkillResult(success=False, message="未配置 LLM API Key")
+
+        topic = kwargs.get("topic") or kwargs.get("subject") or "今日要闻"
+
+        # 使用 Kimi API 生成新闻摘要
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.moonshot.cn/v1/chat/completions",
+                headers={"Content-Type": "application/json", "Authorization": "Bearer " + api_key},
+                json={
+                    "model": "moonshot-v1-8k",
+                    "messages": [
+                        {"role": "system", "content": "你是一个新闻记者，根据给定的主题写一篇简短的新闻报道（100-200字）。"},
+                        {"role": "user", "content": topic}
+                    ],
+                    "max_tokens": 500
+                },
+                timeout=30.0
+            )
+            data = resp.json()
+            article = data.get("choices", [{}])[0].get("message", {}).get("content", "无法生成新闻")
+
+        msg = "📰 " + topic + "\n"
+        msg += "━━━━━━━━━━━━━━\n"
+        msg += article + "\n"
+        msg += "━━━━━━━━━━━━━━\n"
+        msg += "由 Kimi AI 生成"
+
+        return SkillResult(success=True, message=msg)
+
+    except Exception as e:
+        return SkillResult(success=False, message="生成失败: " + str(e))
+'''
+
+    def _get_github_implementation(self) -> str:
+        """获取GitHub趋势的实现代码"""
+        return '''
+import os
+
+async def execute(self, **kwargs) -> SkillResult:
+    try:
+        keyword = kwargs.get("keyword") or kwargs.get("query") or "python"
+        language = kwargs.get("language") or "python"
+
+        # 使用 GitHub API
+        url = "https://api.github.com/search/repositories"
+        params = {"q": keyword + " language:" + language, "sort": "stars", "order": "desc", "per_page": 5}
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params=params, timeout=10.0)
+            data = resp.json()
+
+        if "items" not in data:
+            return SkillResult(success=False, message="搜索失败")
+
+        msg = "⭐ GitHub 趋势: " + keyword + " (" + language + ")\n"
+        msg += "━━━━━━━━━━━━━━\n"
+
+        for i, repo in enumerate(data["items"][:5], 1):
+            name = repo.get("full_name", "")
+            stars = repo.get("stargazers_count", 0)
+            desc = repo.get("description", "")[:50]
+            url = repo.get("html_url", "")
+
+            msg += f"{i}. {name}\n"
+            msg += f"   ⭐ {stars} | {desc}...\n"
+            msg += f"   🔗 {url}\n\n"
+
+        return SkillResult(success=True, message=msg)
+
+    except Exception as e:
+        return SkillResult(success=False, message="查询失败: " + str(e))
 '''
 
     async def _register_dynamic_skill(self, skill_name: str, design: Dict, code: str) -> SkillResult:
