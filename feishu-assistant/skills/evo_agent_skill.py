@@ -818,14 +818,44 @@ async def volc_tts(text, voice="zh_male_shanghai_v2"):
     if not access_key:
         return None, "VOLCENGINE not configured"
     # 火山引擎 TTS 实现
-    return None, "Use MiniMax TTS instead"
+    return None, "Use Kimi TTS instead"
+
+async def kimi_tts(text):
+    """使用 Kimi TTS API"""
+    api_key = os.environ.get("KIMI_API_KEY", "")
+    if not api_key:
+        return None, "No Kimi API key"
+
+    try:
+        import httpx
+        url = "https://api.moonshot.cn/v1/tts"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "speech-01-turbo",
+            "input": text,
+            "voice": "male-qn-qingse",
+            "speed": 1.0,
+            "volume": 1.0,
+            "response_format": "mp3"
+        }
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json=payload, headers=headers, timeout=60.0)
+            if resp.status_code == 200:
+                # TTS 返回的是二进制音频数据
+                return resp.content, None
+            else:
+                return None, f"Kimi TTS error: {resp.status_code} - {resp.text[:100]}"
+    except Exception as e:
+        return None, str(e)
 
 async def doubao_tts(text):
+    """使用 MiniMax TTS API"""
     api_key = os.environ.get("MINIMAX_API_KEY", "")
     if not api_key:
-        api_key = os.environ.get("KIMI_API_KEY", "")
-    if not api_key:
-        return None, "No API key"
+        return None, "No MiniMax API key"
 
     try:
         import httpx
@@ -844,6 +874,8 @@ async def doubao_tts(text):
                 if data.get("data") and data["data"].get("audio"):
                     audio_b64 = data["data"]["audio"]
                     return base64.b64decode(audio_b64), None
+                elif data.get("base_resp"):
+                    return None, f"MiniMax error: {data.get('base_resp')}"
             return None, f"MiniMax error: {resp.status_code}"
     except Exception as e:
         return None, str(e)
@@ -878,11 +910,23 @@ async def execute(self, **kwargs) -> SkillResult:
             if voice_name not in voices:
                 return SkillResult(success=False, message="voice not found")
 
-            audio_data, error = await doubao_tts(text)
+            # 尝试 Kimi TTS
+            audio_data, error = await kimi_tts(text)
+            if not audio_data:
+                # 尝试 MiniMax TTS
+                audio_data, error = await doubao_tts(text)
+
             if audio_data:
-                return SkillResult(success=True, message="Audio generated: " + str(len(audio_data)) + " bytes")
+                return SkillResult(success=True, message="Audio generated successfully! " + str(len(audio_data)) + " bytes")
             else:
-                return SkillResult(success=True, message="Demo mode - " + (error or "TTS failed"))
+                # TTS 不可用，返回文本预览
+                preview = text[:200]
+                if len(text) > 200:
+                    preview += "..."
+                msg = "TTS 暂时不可用（API 额度或配置问题）\n\n"
+                msg += "语音预览：\n" + preview + "\n\n"
+                msg += "错误：" + (error or "未知")
+                return SkillResult(success=True, message=msg)
 
         return SkillResult(success=False, message="unknown action")
     except Exception as e:
