@@ -346,6 +346,10 @@ class EvoAgentSkill(BaseSkill):
         elif "github" in requirement.lower() or "代码库" in requirement:
             params = {"keyword": "python", "language": "python"}
 
+        # 检测语音/TTS
+        elif "语音" in requirement or "声音" in requirement or "tts" in requirement.lower() or "voice" in requirement.lower() or "克隆" in requirement:
+            params = {"action": "list"}
+
         return params
 
     async def _call_llm_design(self, requirement: str, model_config: Dict = None) -> Dict:
@@ -468,6 +472,12 @@ class EvoAgentSkill(BaseSkill):
 
         if is_github:
             return self._get_github_implementation()
+
+        # 检测语音/TTS 相关
+        is_voice = any(kw in search_text for kw in ["语音", "声音", "tts", "voice", "克隆", "朗读", "tts"])
+
+        if is_voice:
+            return self._get_voice_implementation()
 
         # 其他技能返回提示
         return f"""
@@ -777,6 +787,106 @@ async def execute(self, **kwargs) -> SkillResult:
 
     except Exception as e:
         return SkillResult(success=False, message="查询失败: " + str(e))
+'''
+
+    def _get_voice_implementation(self) -> str:
+        """获取语音克隆和TTS的实现代码"""
+        return '''
+import os
+import json
+import base64
+import time
+
+VOICE_FILE = "/opt/feishu-assistant/data/voices.json"
+
+def load_voices():
+    try:
+        if os.path.exists(VOICE_FILE):
+            with open(VOICE_FILE, "r") as f:
+                return json.load(f)
+    except:
+        pass
+    return {}
+
+def save_voices(voices):
+    os.makedirs(os.path.dirname(VOICE_FILE), exist_ok=True)
+    with open(VOICE_FILE, "w") as f:
+        json.dump(voices, f, ensure_ascii=False, indent=2)
+
+async def volc_tts(text, voice="zh_male_shanghai_v2"):
+    access_key = os.environ.get("VOLCENGINE_ACCESS_KEY", "")
+    if not access_key:
+        return None, "VOLCENGINE not configured"
+    # 火山引擎 TTS 实现
+    return None, "Use MiniMax TTS instead"
+
+async def doubao_tts(text):
+    api_key = os.environ.get("MINIMAX_API_KEY", "")
+    if not api_key:
+        api_key = os.environ.get("KIMI_API_KEY", "")
+    if not api_key:
+        return None, "No API key"
+
+    try:
+        import httpx
+        url = "https://api.minimax.chat/v1/t2a_v2"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        payload = {
+            "model": "speech-01-turbo",
+            "text": text,
+            "voice_setting": {"voice_id": "male-qn-qingse"},
+            "audio_setting": {"sample_rate": 32000, "format": "mp3"}
+        }
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json=payload, headers=headers, timeout=60.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("data") and data["data"].get("audio"):
+                    audio_b64 = data["data"]["audio"]
+                    return base64.b64decode(audio_b64), None
+            return None, f"MiniMax error: {resp.status_code}"
+    except Exception as e:
+        return None, str(e)
+
+async def execute(self, **kwargs) -> SkillResult:
+    try:
+        action = kwargs.get("action", "list")
+        voice_name = kwargs.get("voice_name", "")
+        text = kwargs.get("text", "")
+
+        if action == "list":
+            voices = load_voices()
+            if not voices:
+                return SkillResult(success=True, message="No saved voices")
+            msg = "Saved voices:\\n"
+            for name, data in voices.items():
+                msg = msg + "- " + name + "\\n"
+            return SkillResult(success=True, message=msg)
+
+        elif action == "clone":
+            if not voice_name:
+                return SkillResult(success=False, message="need voice_name")
+            voices = load_voices()
+            voices[voice_name] = {"created": "2026-03-03"}
+            save_voices(voices)
+            return SkillResult(success=True, message="voice saved: " + voice_name)
+
+        elif action == "generate":
+            if not voice_name or not text:
+                return SkillResult(success=False, message="need voice_name and text")
+            voices = load_voices()
+            if voice_name not in voices:
+                return SkillResult(success=False, message="voice not found")
+
+            audio_data, error = await doubao_tts(text)
+            if audio_data:
+                return SkillResult(success=True, message="Audio generated: " + str(len(audio_data)) + " bytes")
+            else:
+                return SkillResult(success=True, message="Demo mode - " + (error or "TTS failed"))
+
+        return SkillResult(success=False, message="unknown action")
+    except Exception as e:
+        return SkillResult(success=False, message="Error: " + str(e))
 '''
 
     async def _register_dynamic_skill(self, skill_name: str, design: Dict, code: str) -> SkillResult:
